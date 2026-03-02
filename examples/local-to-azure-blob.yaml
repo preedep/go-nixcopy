@@ -1,0 +1,35 @@
+# ตัวอย่าง: ถ่ายโอนจาก Local File System ไปยัง Azure Blob Storage
+#
+# Use Case: Backup ไฟล์จาก local disk ไปยัง Azure Blob
+# เหมาะสำหรับ:
+# - Backup ไฟล์จาก on-premise server ไปยัง Azure
+# - Upload ข้อมูลไปยัง Azure Blob Storage
+# - Archive ข้อมูลเก่าไปยัง cloud
+
+source:
+  type: local
+  local:
+    base_path: /data/files  # Base directory สำหรับ source files
+
+destination:
+  type: blob
+  blob:
+    account_name: mystorageaccount
+    container_name: backups
+    auth_type: shared_key
+    account_key: YOUR_ACCOUNT_KEY
+    # หรือใช้ SAS token
+    # auth_type: sas_token
+    # sas_token: "sv=2021-06-08&ss=bfqt..."
+
+transfer:
+  buffer_size: 33554432      # 32MB buffer
+  concurrent_files: 4         # ถ่ายโอน 4 ไฟล์พร้อมกัน
+  retry_attempts: 3
+  retry_delay: 5s
+  timeout: 30m
+
+logging:
+  level: info
+  format: json
+  output_path: stdout

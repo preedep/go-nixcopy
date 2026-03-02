@@ -9,6 +9,11 @@ import (
 
 func NewStorageFromSourceConfig(cfg *config.SourceConfig) (repository.Storage, error) {
 	switch cfg.Type {
+	case config.StorageTypeLocal:
+		if cfg.Local == nil {
+			return nil, fmt.Errorf("Local configuration is required")
+		}
+		return NewLocalStorage(cfg.Local)
 	case config.StorageTypeSFTP:
 		if cfg.SFTP == nil {
 			return nil, fmt.Errorf("SFTP configuration is required")
@@ -36,6 +41,11 @@ func NewStorageFromSourceConfig(cfg *config.SourceConfig) (repository.Storage, e
 
 func NewStorageFromDestConfig(cfg *config.DestinationConfig) (repository.Storage, error) {
 	switch cfg.Type {
+	case config.StorageTypeLocal:
+		if cfg.Local == nil {
+			return nil, fmt.Errorf("Local configuration is required")
+		}
+		return NewLocalStorage(cfg.Local)
 	case config.StorageTypeSFTP:
 		if cfg.SFTP == nil {
 			return nil, fmt.Errorf("SFTP configuration is required")
