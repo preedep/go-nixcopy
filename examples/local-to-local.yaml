@@ -1,0 +1,30 @@
+# ตัวอย่าง: Copy ไฟล์ระหว่าง Local Directories
+#
+# Use Case: Copy ไฟล์ภายใน local file system
+# เหมาะสำหรับ:
+# - Copy ไฟล์ระหว่าง directories
+# - Backup ไฟล์ไปยัง external drive
+# - Organize/reorganize ไฟล์
+# - Mirror directories
+
+source:
+  type: local
+  local:
+    base_path: /data/source  # Source directory
+
+destination:
+  type: local
+  local:
+    base_path: /backup/destination  # Destination directory
+
+transfer:
+  buffer_size: 33554432      # 32MB buffer
+  concurrent_files: 8         # Copy 8 ไฟล์พร้อมกัน (local I/O เร็ว)
+  retry_attempts: 3
+  retry_delay: 5s
+  timeout: 30m
+
+logging:
+  level: info
+  format: json
+  output_path: stdout

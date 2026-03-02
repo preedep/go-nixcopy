@@ -14,6 +14,7 @@ type Config struct {
 type StorageType string
 
 const (
+	StorageTypeLocal       StorageType = "local"
 	StorageTypeSFTP        StorageType = "sftp"
 	StorageTypeFTPS        StorageType = "ftps"
 	StorageTypeBlobStorage StorageType = "blob"
@@ -21,19 +22,25 @@ const (
 )
 
 type SourceConfig struct {
-	Type        StorageType `yaml:"type" json:"type"`
-	SFTP        *SFTPConfig `yaml:"sftp,omitempty" json:"sftp,omitempty"`
-	FTPS        *FTPSConfig `yaml:"ftps,omitempty" json:"ftps,omitempty"`
-	BlobStorage *BlobConfig `yaml:"blob,omitempty" json:"blob,omitempty"`
-	S3          *S3Config   `yaml:"s3,omitempty" json:"s3,omitempty"`
+	Type        StorageType  `yaml:"type" json:"type"`
+	Local       *LocalConfig `yaml:"local,omitempty" json:"local,omitempty"`
+	SFTP        *SFTPConfig  `yaml:"sftp,omitempty" json:"sftp,omitempty"`
+	FTPS        *FTPSConfig  `yaml:"ftps,omitempty" json:"ftps,omitempty"`
+	BlobStorage *BlobConfig  `yaml:"blob,omitempty" json:"blob,omitempty"`
+	S3          *S3Config    `yaml:"s3,omitempty" json:"s3,omitempty"`
 }
 
 type DestinationConfig struct {
-	Type        StorageType `yaml:"type" json:"type"`
-	SFTP        *SFTPConfig `yaml:"sftp,omitempty" json:"sftp,omitempty"`
-	FTPS        *FTPSConfig `yaml:"ftps,omitempty" json:"ftps,omitempty"`
-	BlobStorage *BlobConfig `yaml:"blob,omitempty" json:"blob,omitempty"`
-	S3          *S3Config   `yaml:"s3,omitempty" json:"s3,omitempty"`
+	Type        StorageType  `yaml:"type" json:"type"`
+	Local       *LocalConfig `yaml:"local,omitempty" json:"local,omitempty"`
+	SFTP        *SFTPConfig  `yaml:"sftp,omitempty" json:"sftp,omitempty"`
+	FTPS        *FTPSConfig  `yaml:"ftps,omitempty" json:"ftps,omitempty"`
+	BlobStorage *BlobConfig  `yaml:"blob,omitempty" json:"blob,omitempty"`
+	S3          *S3Config    `yaml:"s3,omitempty" json:"s3,omitempty"`
+}
+
+type LocalConfig struct {
+	BasePath string `yaml:"base_path" json:"base_path"`
 }
 
 type SFTPConfig struct {
