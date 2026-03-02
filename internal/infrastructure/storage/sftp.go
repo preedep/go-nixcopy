@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/pkg/sftp"
 	"github.com/preedep/go-nixcopy/internal/domain/entity"

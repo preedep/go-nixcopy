@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/preedep/go-nixcopy/internal/domain/repository"
 	"github.com/preedep/go-nixcopy/internal/infrastructure/config"
 	"github.com/preedep/go-nixcopy/internal/infrastructure/logger"
 	"github.com/preedep/go-nixcopy/internal/infrastructure/storage"
@@ -54,7 +55,7 @@ func runList(cmd *cobra.Command, args []string) error {
 
 	ctx := context.Background()
 
-	var storageSystem storage.Storage
+	var storageSystem repository.Storage
 	var storageType string
 
 	if listSource {
