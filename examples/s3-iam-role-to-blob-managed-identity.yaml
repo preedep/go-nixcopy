@@ -1,20 +1,30 @@
-# ตัวอย่าง: ถ่ายโอนจาก S3 (ใช้ IAM Role) ไปยัง Azure Blob (ใช้ Managed Identity)
-# เหมาะสำหรับการรันบน EC2 instance ที่มี IAM role และ Azure VM ที่มี managed identity
+# ⚠️ ตัวอย่างนี้ไม่สมจริง - ไม่สามารถใช้ได้ในสภาพแวดล้อมเดียวกัน
+# 
+# ปัญหา: ไม่สามารถใช้ทั้ง IAM Role (AWS) และ Managed Identity (Azure) พร้อมกันได้
+# เพราะต้องรันบน infrastructure ของ cloud provider เดียวกัน
+#
+# ถ้ารันบน AWS EC2: ใช้ IAM role ได้ แต่ใช้ Managed Identity ไม่ได้
+# ถ้ารันบน Azure VM: ใช้ Managed Identity ได้ แต่ใช้ IAM role ไม่ได้
+#
+# ดูตัวอย่างที่ถูกต้องได้ที่:
+# - aws-ec2-to-azure-blob.yaml (รันบน AWS)
+# - azure-vm-to-s3.yaml (รันบน Azure)
 
+# ตัวอย่างนี้จะใช้งานไม่ได้ในทางปฏิบัติ
 source:
   type: s3
   s3:
     region: ap-southeast-1
     bucket: my-source-bucket
-    auth_type: iam_role  # ใช้ IAM role ที่ attach กับ EC2 instance
+    auth_type: iam_role  # ใช้ได้เฉพาะบน AWS infrastructure
 
 destination:
   type: blob
   blob:
     account_name: mystorageaccount
     container_name: destination-container
-    auth_type: managed_identity  # ใช้ managed identity ของ Azure VM
-    client_id: ""  # ระบุ client_id ถ้าใช้ user-assigned managed identity
+    auth_type: managed_identity  # ใช้ได้เฉพาะบน Azure infrastructure
+    client_id: ""
 
 transfer:
   buffer_size: 33554432

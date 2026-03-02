@@ -1,0 +1,37 @@
+# ตัวอย่าง: รันบน AWS EC2 → ถ่ายโอนไปยัง Azure Blob Storage
+# 
+# สภาพแวดล้อม: AWS EC2 instance
+# Source: S3 (ใช้ IAM Role ที่ attach กับ EC2)
+# Destination: Azure Blob (ใช้ Shared Key หรือ SAS Token - ไม่สามารถใช้ Managed Identity ได้)
+#
+# หมายเหตุ: Managed Identity ใช้ได้เฉพาะบน Azure infrastructure เท่านั้น
+
+source:
+  type: s3
+  s3:
+    region: ap-southeast-1
+    bucket: my-source-bucket
+    auth_type: iam_role  # ใช้ IAM role ที่ attach กับ EC2 instance
+
+destination:
+  type: blob
+  blob:
+    account_name: mystorageaccount
+    container_name: destination-container
+    auth_type: shared_key  # ต้องใช้ credentials (ไม่สามารถใช้ managed_identity บน AWS)
+    account_key: YOUR_ACCOUNT_KEY
+    # หรือใช้ SAS token
+    # auth_type: sas_token
+    # sas_token: "sv=2021-06-08&ss=bfqt..."
+
+transfer:
+  buffer_size: 33554432
+  concurrent_files: 4
+  retry_attempts: 3
+  retry_delay: 5s
+  timeout: 30m
+
+logging:
+  level: info
+  format: json
+  output_path: stdout

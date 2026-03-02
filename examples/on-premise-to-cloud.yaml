@@ -1,0 +1,50 @@
+# ตัวอย่าง: รันบน On-Premise Server → ถ่ายโอนไปยัง Cloud
+#
+# สภาพแวดล้อม: On-premise server (ไม่ได้รันบน AWS หรือ Azure)
+# Source: SFTP (local/on-premise)
+# Destination: S3 หรือ Azure Blob (ต้องใช้ credentials ทั้งคู่)
+#
+# หมายเหตุ: 
+# - ไม่สามารถใช้ IAM Role, Managed Identity, Instance Profile ได้
+# - ต้องใช้ Access Key/Shared Key เท่านั้น
+
+source:
+  type: sftp
+  sftp:
+    host: sftp.company.local
+    port: 22
+    username: backup-user
+    private_key_path: /home/user/.ssh/id_rsa
+    timeout: 30s
+    max_packet_size: 32768
+
+# Option 1: Destination เป็น S3
+destination:
+  type: s3
+  s3:
+    region: ap-southeast-1
+    bucket: backup-bucket
+    auth_type: access_key  # ต้องใช้ access key (ไม่มี IAM role บน on-premise)
+    access_key_id: AKIAIOSFODNN7EXAMPLE
+    secret_access_key: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+
+# Option 2: Destination เป็น Azure Blob (uncomment เพื่อใช้)
+# destination:
+#   type: blob
+#   blob:
+#     account_name: backupstorageaccount
+#     container_name: backups
+#     auth_type: shared_key  # ต้องใช้ shared key (ไม่มี managed identity บน on-premise)
+#     account_key: YOUR_ACCOUNT_KEY
+
+transfer:
+  buffer_size: 33554432
+  concurrent_files: 4
+  retry_attempts: 3
+  retry_delay: 5s
+  timeout: 30m
+
+logging:
+  level: info
+  format: json
+  output_path: stdout
