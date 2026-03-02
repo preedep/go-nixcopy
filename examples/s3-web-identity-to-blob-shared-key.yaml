@@ -1,0 +1,31 @@
+# ตัวอย่าง: ถ่ายโอนจาก S3 (ใช้ Web Identity/OIDC) ไปยัง Azure Blob (ใช้ Shared Key)
+# เหมาะสำหรับการรันบน EKS with IRSA (IAM Roles for Service Accounts)
+
+source:
+  type: s3
+  s3:
+    region: us-east-1
+    bucket: source-bucket
+    auth_type: web_identity
+    role_arn: arn:aws:iam::123456789012:role/EKSPodRole
+    web_identity_token_file: /var/run/secrets/eks.amazonaws.com/serviceaccount/token
+
+destination:
+  type: blob
+  blob:
+    account_name: deststorageaccount
+    container_name: destination-container
+    auth_type: shared_key
+    account_key: YOUR_ACCOUNT_KEY
+
+transfer:
+  buffer_size: 33554432
+  concurrent_files: 4
+  retry_attempts: 3
+  retry_delay: 5s
+  timeout: 30m
+
+logging:
+  level: info
+  format: json
+  output_path: stdout

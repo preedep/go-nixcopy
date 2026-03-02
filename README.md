@@ -20,9 +20,11 @@
 
 - **ประสิทธิภาพสูง**
   - ใช้ Streaming I/O เพื่อประหยัดหน่วยความจำ
-  - รองรับการถ่ายโอนหลายไฟล์พร้อมกัน (Concurrent Transfer)
+  - รองรับการถ่ายโอนหลายไฟล์พร้อมกัน (Parallel Transfer)
+  - รองรับ Wildcard Patterns (`*.pdf`, `**/*.log`)
   - Buffer size ที่ปรับแต่งได้
   - Retry mechanism อัตโนมัติเมื่อเกิดข้อผิดพลาด
+  - Progress tracking แบบ real-time สำหรับแต่ละไฟล์
 
 - **สถาปัตยกรรม**
   - ออกแบบตาม Clean Architecture principles
@@ -103,6 +105,29 @@ logging:
   output_path: stdout        # stdout หรือ path ของไฟล์
 ```
 
+## 🔐 Authentication
+
+go-nixcopy รองรับวิธีการ authentication หลายแบบสำหรับแต่ละ cloud provider เพื่อความยืดหยุนและความปลอดภัย
+
+### AWS S3 Authentication Methods
+
+- **Access Key** - Static credentials (development/testing)
+- **IAM Role** - สำหรับ EC2, ECS, Lambda (แนะนำ)
+- **Instance Profile** - สำหรับ EC2 instances
+- **Assume Role** - Cross-account access
+- **Web Identity** - สำหรับ Kubernetes (EKS IRSA)
+- **AWS Profile** - ใช้ credentials จาก ~/.aws/credentials
+
+### Azure Blob Storage Authentication Methods
+
+- **Shared Key** - Account key (development/testing)
+- **SAS Token** - Temporary access with limited permissions
+- **Connection String** - Quick setup
+- **Managed Identity** - สำหรับ Azure VMs, App Services (แนะนำ)
+- **Service Principal** - สำหรับ applications, CI/CD
+
+📖 **อ่านเพิ่มเติม:** [AUTHENTICATION.md](AUTHENTICATION.md) - คู่มือการ authentication แบบละเอียดพร้อมตัวอย่าง
+
 ### การตั้งค่าแต่ละ Storage Type
 
 #### SFTP Configuration
@@ -135,24 +160,94 @@ ftps:
 
 #### Azure Blob Storage Configuration
 
+**ตัวอย่าง 1: Shared Key**
 ```yaml
 blob:
   account_name: mystorageaccount
-  account_key: YOUR_ACCOUNT_KEY
   container_name: mycontainer
+  auth_type: shared_key
+  account_key: YOUR_ACCOUNT_KEY
   endpoint: https://mystorageaccount.blob.core.windows.net/  # optional
+```
+
+**ตัวอย่าง 2: Managed Identity (แนะนำสำหรับ Azure VMs)**
+```yaml
+blob:
+  account_name: mystorageaccount
+  container_name: mycontainer
+  auth_type: managed_identity
+  client_id: ""  # ระบุเฉพาะถ้าใช้ user-assigned managed identity
+```
+
+**ตัวอย่าง 3: Service Principal**
+```yaml
+blob:
+  account_name: mystorageaccount
+  container_name: mycontainer
+  auth_type: service_principal
+  tenant_id: your-tenant-id
+  client_id: your-client-id
+  client_secret: your-client-secret
+```
+
+**ตัวอย่าง 4: SAS Token**
+```yaml
+blob:
+  account_name: mystorageaccount
+  container_name: mycontainer
+  auth_type: sas_token
+  sas_token: "sv=2021-06-08&ss=bfqt&srt=sco&sp=rwdlacupiytfx&se=2024-12-31T23:59:59Z..."
+```
+
+**ตัวอย่าง 5: Connection String**
+```yaml
+blob:
+  auth_type: connection_string
+  connection_string: "DefaultEndpointsProtocol=https;AccountName=mystorageaccount;AccountKey=YOUR_KEY;EndpointSuffix=core.windows.net"
+  container_name: mycontainer
 ```
 
 #### AWS S3 Configuration
 
+**ตัวอย่าง 1: Access Key (Static Credentials)**
 ```yaml
 s3:
   region: ap-southeast-1
   bucket: my-bucket
+  auth_type: access_key
   access_key_id: YOUR_ACCESS_KEY
   secret_access_key: YOUR_SECRET_KEY
   endpoint: ""              # ใช้สำหรับ S3-compatible (เช่น MinIO)
   use_path_style: false     # ใช้ path-style URLs
+```
+
+**ตัวอย่าง 2: IAM Role (แนะนำสำหรับ EC2/ECS)**
+```yaml
+s3:
+  region: ap-southeast-1
+  bucket: my-bucket
+  auth_type: iam_role       # ใช้ IAM role ที่ attach กับ instance
+```
+
+**ตัวอย่าง 3: Assume Role (Cross-account)**
+```yaml
+s3:
+  region: ap-southeast-1
+  bucket: my-bucket
+  auth_type: assume_role
+  role_arn: arn:aws:iam::123456789012:role/MyRole
+  role_session_name: nixcopy-session
+  external_id: my-external-id  # optional
+```
+
+**ตัวอย่าง 4: Web Identity (EKS IRSA)**
+```yaml
+s3:
+  region: ap-southeast-1
+  bucket: my-bucket
+  auth_type: web_identity
+  role_arn: arn:aws:iam::123456789012:role/EKSPodRole
+  web_identity_token_file: /var/run/secrets/eks.amazonaws.com/serviceaccount/token
 ```
 
 ## 📖 วิธีการใช้งาน
@@ -163,8 +258,23 @@ s3:
 # แสดงความช่วยเหลือ
 nixcopy --help
 
-# ถ่ายโอนไฟล์
+# ถ่ายโอนไฟล์ (ใช้ config file)
 nixcopy transfer --config config.yaml --source /path/to/source/file --dest /path/to/dest/file
+
+# ถ่ายโอนไฟล์ (ใช้ CLI parameters - ไม่ต้องมี config file)
+nixcopy transfer \
+  --source-type sftp \
+  --source-host sftp.example.com \
+  --source-username user \
+  --source-password pass \
+  --source /remote/file.txt \
+  --dest-type s3 \
+  --dest-region ap-southeast-1 \
+  --dest-bucket my-bucket \
+  --dest-auth-type access_key \
+  --dest-access-key AKIAIOSFODNN7EXAMPLE \
+  --dest-secret-key wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY \
+  --dest /backup/file.txt
 
 # แสดงรายการไฟล์ใน source storage
 nixcopy list --config config.yaml --path /remote/path --source
@@ -173,9 +283,88 @@ nixcopy list --config config.yaml --path /remote/path --source
 nixcopy list --config config.yaml --path /remote/path --source=false
 ```
 
+### 🎯 การใช้ CLI Parameters
+
+go-nixcopy รองรับการส่ง parameters ผ่าน command line ได้ 3 แบบ:
+
+1. **ใช้ Config File อย่างเดียว** (แนะนำสำหรับ production)
+   ```bash
+   nixcopy transfer -c config.yaml -s /source/file -d /dest/file
+   ```
+
+2. **ใช้ CLI Parameters อย่างเดียว** (ไม่ต้องมี config file)
+   ```bash
+   nixcopy transfer --source-type sftp --source-host ... -s /file -d /file
+   ```
+
+3. **ผสมกัน - Config File + CLI Parameters** (CLI override config)
+   ```bash
+   nixcopy transfer -c config.yaml \
+     --source-password $SFTP_PASSWORD \
+     --dest-access-key $AWS_ACCESS_KEY \
+     -s /source/file -d /dest/file
+   ```
+
+📖 **อ่านเพิ่มเติม:** [CLI_USAGE.md](CLI_USAGE.md) - คู่มือการใช้ CLI parameters แบบละเอียด
+
+### 🚀 Parallel Transfer & Wildcard Patterns
+
+go-nixcopy รองรับการถ่ายโอนหลายไฟล์พร้อมกัน (parallel) และ wildcard patterns
+
+#### Wildcard Patterns ที่รองรับ
+
+- `*.pdf` - ไฟล์ PDF ทั้งหมดใน directory ปัจจุบัน
+- `report*.xlsx` - ไฟล์ที่ขึ้นต้นด้วย "report"
+- `**/*.log` - ไฟล์ .log ทั้งหมดรวม subdirectories
+- `data/2024/**/*.csv` - ไฟล์ CSV ทั้งหมดใน data/2024 และ subdirectories
+
+#### ตัวอย่างการใช้งาน
+
+**1. ถ่ายโอนไฟล์ PDF ทั้งหมด:**
+```bash
+nixcopy transfer -c config.yaml \
+  -s "documents/*.pdf" \
+  -d /backup/documents/ \
+  --concurrent-files 8
+```
+
+**2. ถ่ายโอนหลายไฟล์ (ระบุชื่อชัดเจน):**
+```bash
+nixcopy transfer -c config.yaml \
+  --sources file1.pdf,file2.pdf,file3.pdf \
+  -d /backup/
+```
+
+**3. ถ่ายโอนแบบ Recursive:**
+```bash
+nixcopy transfer -c config.yaml \
+  -s "logs/**/*.log" \
+  -d /backup/logs/ \
+  --concurrent-files 16
+```
+
+**4. ผสม Patterns หลายแบบ:**
+```bash
+nixcopy transfer -c config.yaml \
+  --sources "*.pdf,*.docx,reports/*.xlsx" \
+  -d /backup/documents/ \
+  --concurrent-files 12
+```
+
+📖 **อ่านเพิ่มเติม:** [PARALLEL_TRANSFER.md](PARALLEL_TRANSFER.md) - คู่มือการถ่ายโอนแบบ parallel แบบละเอียด
+
+#### ลำดับความสำคัญ (Precedence)
+
+1. **CLI Flags** (สูงสุด) - Override ทุกอย่าง
+2. **Environment Variables** - ใช้เมื่อไม่มี CLI flags
+3. **Config File** - ใช้เมื่อไม่มี CLI flags และ env vars
+4. **Default Values** (ต่ำสุด)
+
 ### ตัวอย่างการใช้งาน
 
 #### 1. ถ่ายโอนไฟล์จาก SFTP ไปยัง AWS S3
+
+**แบบที่ 1: ใช้ Config File**
 
 ```bash
 # สร้างไฟล์ config
@@ -213,6 +402,47 @@ EOF
 
 # ถ่ายโอนไฟล์
 nixcopy transfer -c config.yaml -s /remote/data/file.zip -d backup/file.zip
+```
+
+**แบบที่ 2: ใช้ CLI Parameters (ไม่ต้องมี config file)**
+
+```bash
+nixcopy transfer \
+  --source-type sftp \
+  --source-host sftp.example.com \
+  --source-port 22 \
+  --source-username user \
+  --source-private-key ~/.ssh/id_rsa \
+  -s /remote/data/file.zip \
+  --dest-type s3 \
+  --dest-region ap-southeast-1 \
+  --dest-bucket my-s3-bucket \
+  --dest-auth-type access_key \
+  --dest-access-key AKIAIOSFODNN7EXAMPLE \
+  --dest-secret-key wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY \
+  -d backup/file.zip
+```
+
+**แบบที่ 3: ใช้ Environment Variables**
+
+```bash
+export AWS_ACCESS_KEY_ID="AKIAIOSFODNN7EXAMPLE"
+export AWS_SECRET_ACCESS_KEY="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+export SFTP_PASSWORD="your-password"
+
+nixcopy transfer \
+  --source-type sftp \
+  --source-host sftp.example.com \
+  --source-username user \
+  --source-password "$SFTP_PASSWORD" \
+  -s /remote/data/file.zip \
+  --dest-type s3 \
+  --dest-region ap-southeast-1 \
+  --dest-bucket my-s3-bucket \
+  --dest-auth-type access_key \
+  --dest-access-key "$AWS_ACCESS_KEY_ID" \
+  --dest-secret-key "$AWS_SECRET_ACCESS_KEY" \
+  -d backup/file.zip
 ```
 
 #### 2. ถ่ายโอนจาก Azure Blob Storage ไปยัง FTPS
@@ -257,6 +487,39 @@ Transfer Summary:
   Average Speed: 128.32 MB/s
   Status: completed
 ```
+
+## 🧪 การทดสอบ
+
+### รัน Unit Tests
+
+```bash
+# รัน tests ทั้งหมด
+go test ./...
+
+# รัน tests พร้อม verbose output
+go test -v ./...
+
+# รัน tests พร้อม coverage report
+go test -cover ./...
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out
+
+# ใช้ Makefile
+make test
+make test-coverage
+make test-verbose
+```
+
+### Test Coverage
+
+โปรเจกต์มี unit tests ครอบคลุมส่วนสำคัญ:
+- ✅ Domain entities (pattern matching, transfer)
+- ✅ Use cases (transfer, pattern matcher)
+- ✅ Configuration และ validation
+- ✅ CLI flags และ parameter handling
+- ✅ Mock storage สำหรับ testing
+
+📖 **อ่านเพิ่มเติม:** [TESTING.md](TESTING.md) - คู่มือการทดสอบแบบละเอียด
 
 ## 🏗️ สถาปัตยกรรม
 

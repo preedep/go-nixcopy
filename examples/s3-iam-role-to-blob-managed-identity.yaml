@@ -1,0 +1,29 @@
+# ตัวอย่าง: ถ่ายโอนจาก S3 (ใช้ IAM Role) ไปยัง Azure Blob (ใช้ Managed Identity)
+# เหมาะสำหรับการรันบน EC2 instance ที่มี IAM role และ Azure VM ที่มี managed identity
+
+source:
+  type: s3
+  s3:
+    region: ap-southeast-1
+    bucket: my-source-bucket
+    auth_type: iam_role  # ใช้ IAM role ที่ attach กับ EC2 instance
+
+destination:
+  type: blob
+  blob:
+    account_name: mystorageaccount
+    container_name: destination-container
+    auth_type: managed_identity  # ใช้ managed identity ของ Azure VM
+    client_id: ""  # ระบุ client_id ถ้าใช้ user-assigned managed identity
+
+transfer:
+  buffer_size: 33554432
+  concurrent_files: 4
+  retry_attempts: 3
+  retry_delay: 5s
+  timeout: 30m
+
+logging:
+  level: info
+  format: json
+  output_path: stdout

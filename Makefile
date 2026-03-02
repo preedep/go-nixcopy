@@ -38,14 +38,21 @@ run: ## รันโปรแกรม
 	go run $(MAIN_PATH)
 
 test: ## รัน unit tests
-	@echo "Running tests..."
+	go test ./...
+
+test-verbose: ## รัน unit tests พร้อม verbose mode
 	go test -v ./...
 
 test-coverage: ## รัน tests พร้อม coverage report
-	@echo "Running tests with coverage..."
-	go test -v -coverprofile=coverage.out ./...
+	go test -cover ./...
+	go test -coverprofile=coverage.out ./...
 	go tool cover -html=coverage.out -o coverage.html
-	@echo "Coverage report generated: coverage.html"
+
+test-unit: ## รัน unit tests
+	go test -short ./...
+
+test-race: ## รัน tests พร้อม race detector
+	go test -race ./...
 
 fmt: ## Format โค้ด
 	@echo "Formatting code..."

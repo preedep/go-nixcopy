@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
@@ -35,14 +36,79 @@ func (b *BlobStorage) Connect(ctx context.Context) error {
 		serviceURL = fmt.Sprintf("https://%s.blob.core.windows.net/", b.config.AccountName)
 	}
 
-	cred, err := azblob.NewSharedKeyCredential(b.config.AccountName, b.config.AccountKey)
-	if err != nil {
-		return fmt.Errorf("failed to create credentials: %w", err)
-	}
+	var client *azblob.Client
+	var err error
 
-	client, err := azblob.NewClientWithSharedKeyCredential(serviceURL, cred, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create blob client: %w", err)
+	switch b.config.AuthType {
+	case config.BlobAuthSharedKey:
+		if b.config.AccountKey == "" {
+			return fmt.Errorf("account_key is required for shared_key auth type")
+		}
+		cred, err := azblob.NewSharedKeyCredential(b.config.AccountName, b.config.AccountKey)
+		if err != nil {
+			return fmt.Errorf("failed to create shared key credentials: %w", err)
+		}
+		client, err = azblob.NewClientWithSharedKeyCredential(serviceURL, cred, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create blob client with shared key: %w", err)
+		}
+
+	case config.BlobAuthSASToken:
+		if b.config.SASToken == "" {
+			return fmt.Errorf("sas_token is required for sas_token auth type")
+		}
+		sasURL := serviceURL
+		if !strings.Contains(b.config.SASToken, "?") {
+			sasURL = serviceURL + "?" + b.config.SASToken
+		} else {
+			sasURL = serviceURL + b.config.SASToken
+		}
+		client, err = azblob.NewClientWithNoCredential(sasURL, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create blob client with SAS token: %w", err)
+		}
+
+	case config.BlobAuthConnectionString:
+		if b.config.ConnectionString == "" {
+			return fmt.Errorf("connection_string is required for connection_string auth type")
+		}
+		client, err = azblob.NewClientFromConnectionString(b.config.ConnectionString, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create blob client from connection string: %w", err)
+		}
+
+	case config.BlobAuthManagedIdentity:
+		cred, err := azidentity.NewManagedIdentityCredential(&azidentity.ManagedIdentityCredentialOptions{
+			ID: azidentity.ClientID(b.config.ClientID),
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create managed identity credentials: %w", err)
+		}
+		client, err = azblob.NewClient(serviceURL, cred, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create blob client with managed identity: %w", err)
+		}
+
+	case config.BlobAuthServicePrincipal:
+		if b.config.TenantID == "" || b.config.ClientID == "" || b.config.ClientSecret == "" {
+			return fmt.Errorf("tenant_id, client_id, and client_secret are required for service_principal auth type")
+		}
+		cred, err := azidentity.NewClientSecretCredential(
+			b.config.TenantID,
+			b.config.ClientID,
+			b.config.ClientSecret,
+			nil,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to create service principal credentials: %w", err)
+		}
+		client, err = azblob.NewClient(serviceURL, cred, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create blob client with service principal: %w", err)
+		}
+
+	default:
+		return fmt.Errorf("unsupported auth type: %s", b.config.AuthType)
 	}
 
 	b.client = client

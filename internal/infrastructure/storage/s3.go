@@ -28,14 +28,56 @@ func NewS3Storage(cfg *appconfig.S3Config) repository.Storage {
 }
 
 func (s *S3Storage) Connect(ctx context.Context) error {
-	awsCfg, err := config.LoadDefaultConfig(ctx,
+	var awsCfg aws.Config
+	var err error
+
+	configOptions := []func(*config.LoadOptions) error{
 		config.WithRegion(s.config.Region),
-		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
-			s.config.AccessKeyID,
-			s.config.SecretAccessKey,
-			"",
-		)),
-	)
+	}
+
+	if s.config.Profile != "" {
+		configOptions = append(configOptions, config.WithSharedConfigProfile(s.config.Profile))
+	}
+
+	switch s.config.AuthType {
+	case appconfig.S3AuthAccessKey:
+		if s.config.AccessKeyID == "" || s.config.SecretAccessKey == "" {
+			return fmt.Errorf("access_key_id and secret_access_key are required for access_key auth type")
+		}
+		configOptions = append(configOptions, config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(
+				s.config.AccessKeyID,
+				s.config.SecretAccessKey,
+				s.config.SessionToken,
+			),
+		))
+		awsCfg, err = config.LoadDefaultConfig(ctx, configOptions...)
+
+	case appconfig.S3AuthIAMRole, appconfig.S3AuthInstanceProfile:
+		awsCfg, err = config.LoadDefaultConfig(ctx, configOptions...)
+
+	case appconfig.S3AuthAssumeRole:
+		if s.config.RoleARN == "" {
+			return fmt.Errorf("role_arn is required for assume_role auth type")
+		}
+		awsCfg, err = config.LoadDefaultConfig(ctx, configOptions...)
+		if err != nil {
+			return fmt.Errorf("failed to load AWS config: %w", err)
+		}
+
+	case appconfig.S3AuthWebIdentity:
+		if s.config.RoleARN == "" || s.config.WebIdentityTokenFile == "" {
+			return fmt.Errorf("role_arn and web_identity_token_file are required for web_identity auth type")
+		}
+		configOptions = append(configOptions, config.WithWebIdentityRoleCredentialOptions(func(options *config.WebIdentityRoleOptions) {
+			options.RoleARN = s.config.RoleARN
+		}))
+		awsCfg, err = config.LoadDefaultConfig(ctx, configOptions...)
+
+	default:
+		awsCfg, err = config.LoadDefaultConfig(ctx, configOptions...)
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to load AWS config: %w", err)
 	}
