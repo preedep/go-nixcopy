@@ -20,9 +20,11 @@
 
 - **ประสิทธิภาพสูง**
   - ใช้ Streaming I/O เพื่อประหยัดหน่วยความจำ
-  - รองรับการถ่ายโอนหลายไฟล์พร้อมกัน (Concurrent Transfer)
+  - รองรับการถ่ายโอนหลายไฟล์พร้อมกัน (Parallel Transfer)
+  - รองรับ Wildcard Patterns (`*.pdf`, `**/*.log`)
   - Buffer size ที่ปรับแต่งได้
   - Retry mechanism อัตโนมัติเมื่อเกิดข้อผิดพลาด
+  - Progress tracking แบบ real-time สำหรับแต่ละไฟล์
 
 - **สถาปัตยกรรม**
   - ออกแบบตาม Clean Architecture principles
@@ -304,6 +306,52 @@ go-nixcopy รองรับการส่ง parameters ผ่าน command 
    ```
 
 📖 **อ่านเพิ่มเติม:** [CLI_USAGE.md](CLI_USAGE.md) - คู่มือการใช้ CLI parameters แบบละเอียด
+
+### 🚀 Parallel Transfer & Wildcard Patterns
+
+go-nixcopy รองรับการถ่ายโอนหลายไฟล์พร้อมกัน (parallel) และ wildcard patterns
+
+#### Wildcard Patterns ที่รองรับ
+
+- `*.pdf` - ไฟล์ PDF ทั้งหมดใน directory ปัจจุบัน
+- `report*.xlsx` - ไฟล์ที่ขึ้นต้นด้วย "report"
+- `**/*.log` - ไฟล์ .log ทั้งหมดรวม subdirectories
+- `data/2024/**/*.csv` - ไฟล์ CSV ทั้งหมดใน data/2024 และ subdirectories
+
+#### ตัวอย่างการใช้งาน
+
+**1. ถ่ายโอนไฟล์ PDF ทั้งหมด:**
+```bash
+nixcopy transfer -c config.yaml \
+  -s "documents/*.pdf" \
+  -d /backup/documents/ \
+  --concurrent-files 8
+```
+
+**2. ถ่ายโอนหลายไฟล์ (ระบุชื่อชัดเจน):**
+```bash
+nixcopy transfer -c config.yaml \
+  --sources file1.pdf,file2.pdf,file3.pdf \
+  -d /backup/
+```
+
+**3. ถ่ายโอนแบบ Recursive:**
+```bash
+nixcopy transfer -c config.yaml \
+  -s "logs/**/*.log" \
+  -d /backup/logs/ \
+  --concurrent-files 16
+```
+
+**4. ผสม Patterns หลายแบบ:**
+```bash
+nixcopy transfer -c config.yaml \
+  --sources "*.pdf,*.docx,reports/*.xlsx" \
+  -d /backup/documents/ \
+  --concurrent-files 12
+```
+
+📖 **อ่านเพิ่มเติม:** [PARALLEL_TRANSFER.md](PARALLEL_TRANSFER.md) - คู่มือการถ่ายโอนแบบ parallel แบบละเอียด
 
 #### ลำดับความสำคัญ (Precedence)
 

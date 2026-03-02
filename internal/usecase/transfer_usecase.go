@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path/filepath"
 	"time"
 
 	"github.com/preedep/go-nixcopy/internal/domain/entity"
@@ -145,30 +146,76 @@ func (t *TransferUseCase) TransferBatch(
 	destBasePath string,
 	progressChan chan<- entity.TransferProgress,
 ) ([]*entity.TransferResult, error) {
-	results := make([]*entity.TransferResult, 0, len(sourcePaths))
+	results := make([]*entity.TransferResult, len(sourcePaths))
 	semaphore := make(chan struct{}, t.config.ConcurrentFiles)
+	resultChan := make(chan struct {
+		index  int
+		result *entity.TransferResult
+	}, len(sourcePaths))
 
-	for _, sourcePath := range sourcePaths {
+	t.logger.Info("Starting batch transfer",
+		zap.Int("total_files", len(sourcePaths)),
+		zap.Int("concurrent", t.config.ConcurrentFiles),
+	)
+
+	for i, sourcePath := range sourcePaths {
 		select {
 		case <-ctx.Done():
 			return results, ctx.Err()
 		case semaphore <- struct{}{}:
 		}
 
-		go func(src string) {
+		go func(index int, src string) {
 			defer func() { <-semaphore }()
 
-			result, err := t.Transfer(ctx, src, destBasePath, progressChan)
+			// Construct destination path
+			stat, err := t.source.Stat(ctx, src)
+			var destPath string
+			if err == nil && stat != nil {
+				destPath = filepath.Join(destBasePath, stat.Name)
+			} else {
+				destPath = filepath.Join(destBasePath, filepath.Base(src))
+			}
+
+			// Create individual progress channel for this file
+			fileProgressChan := make(chan entity.TransferProgress, 10)
+			go func() {
+				for progress := range fileProgressChan {
+					if progressChan != nil {
+						progressChan <- progress
+					}
+				}
+			}()
+
+			result, err := t.Transfer(ctx, src, destPath, fileProgressChan)
 			if err != nil {
 				t.logger.Error("Transfer failed",
 					zap.String("source", src),
+					zap.String("destination", destPath),
 					zap.Error(err),
 				)
+			} else {
+				t.logger.Info("Transfer succeeded",
+					zap.String("source", src),
+					zap.String("destination", destPath),
+					zap.Int64("bytes", result.BytesTransferred),
+				)
 			}
-			results = append(results, result)
-		}(sourcePath)
+
+			resultChan <- struct {
+				index  int
+				result *entity.TransferResult
+			}{index: index, result: result}
+		}(i, sourcePath)
 	}
 
+	// Wait for all transfers to complete
+	for i := 0; i < len(sourcePaths); i++ {
+		res := <-resultChan
+		results[res.index] = res.result
+	}
+
+	// Drain semaphore
 	for i := 0; i < cap(semaphore); i++ {
 		semaphore <- struct{}{}
 	}

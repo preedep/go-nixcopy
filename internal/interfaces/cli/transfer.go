@@ -19,8 +19,9 @@ import (
 )
 
 var (
-	sourcePath string
-	destPath   string
+	sourcePath  string
+	sourcePaths []string
+	destPath    string
 
 	// Source flags
 	sourceType        string
@@ -71,9 +72,9 @@ func init() {
 	rootCmd.AddCommand(transferCmd)
 
 	// Path flags
-	transferCmd.Flags().StringVarP(&sourcePath, "source", "s", "", "Source file path (required)")
-	transferCmd.Flags().StringVarP(&destPath, "dest", "d", "", "Destination file path (required)")
-	transferCmd.MarkFlagRequired("source")
+	transferCmd.Flags().StringVarP(&sourcePath, "source", "s", "", "Source file path or pattern (supports wildcards: *.pdf, **/*.txt)")
+	transferCmd.Flags().StringSliceVar(&sourcePaths, "sources", []string{}, "Multiple source file paths (comma-separated)")
+	transferCmd.Flags().StringVarP(&destPath, "dest", "d", "", "Destination path (required)")
 	transferCmd.MarkFlagRequired("dest")
 
 	// Source storage flags
@@ -190,7 +191,49 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 
 	transferUseCase := usecase.NewTransferUseCase(sourceStorage, destStorage, transferConfig, log)
 
-	progressChan := make(chan entity.TransferProgress, 10)
+	// Collect all source paths
+	var allSourcePaths []string
+
+	// Add single source path if provided
+	if sourcePath != "" {
+		allSourcePaths = append(allSourcePaths, sourcePath)
+	}
+
+	// Add multiple source paths if provided
+	if len(sourcePaths) > 0 {
+		allSourcePaths = append(allSourcePaths, sourcePaths...)
+	}
+
+	if len(allSourcePaths) == 0 {
+		return fmt.Errorf("no source files specified, use --source or --sources")
+	}
+
+	// Expand patterns and collect all files
+	var filesToTransfer []string
+	patternMatcher := usecase.NewPatternMatcher(sourceStorage, log)
+
+	for _, srcPath := range allSourcePaths {
+		matchedFiles, err := patternMatcher.MatchFiles(ctx, srcPath)
+		if err != nil {
+			log.Warn("Failed to match pattern",
+				zap.String("pattern", srcPath),
+				zap.Error(err),
+			)
+			continue
+		}
+		filesToTransfer = append(filesToTransfer, matchedFiles...)
+	}
+
+	if len(filesToTransfer) == 0 {
+		return fmt.Errorf("no files matched the specified patterns")
+	}
+
+	log.Info("Files to transfer",
+		zap.Int("count", len(filesToTransfer)),
+		zap.Int("concurrent", cfg.Transfer.ConcurrentFiles),
+	)
+
+	progressChan := make(chan entity.TransferProgress, 100)
 	go func() {
 		for progress := range progressChan {
 			if progress.Status == entity.TransferStatusInProgress {
@@ -217,18 +260,61 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	result, err := transferUseCase.Transfer(ctx, sourcePath, destPath, progressChan)
-	if err != nil {
-		return fmt.Errorf("transfer failed: %w", err)
+	startTime := time.Now()
+	var results []*entity.TransferResult
+
+	if len(filesToTransfer) == 1 {
+		// Single file transfer
+		result, err := transferUseCase.Transfer(ctx, filesToTransfer[0], destPath, progressChan)
+		if err != nil {
+			return fmt.Errorf("transfer failed: %w", err)
+		}
+		results = []*entity.TransferResult{result}
+	} else {
+		// Batch transfer
+		batchResults, err := transferUseCase.TransferBatch(ctx, filesToTransfer, destPath, progressChan)
+		if err != nil {
+			return fmt.Errorf("batch transfer failed: %w", err)
+		}
+		results = batchResults
 	}
 
-	fmt.Printf("\nTransfer Summary:\n")
-	fmt.Printf("  Source: %s\n", result.SourcePath)
-	fmt.Printf("  Destination: %s\n", result.DestinationPath)
-	fmt.Printf("  Bytes Transferred: %d (%.2f MB)\n", result.BytesTransferred, float64(result.BytesTransferred)/(1024*1024))
-	fmt.Printf("  Duration: %s\n", result.Duration.Round(time.Millisecond))
-	fmt.Printf("  Average Speed: %.2f MB/s\n", float64(result.BytesTransferred)/(1024*1024)/result.Duration.Seconds())
-	fmt.Printf("  Status: %s\n", result.Status)
+	close(progressChan)
+	totalDuration := time.Since(startTime)
+
+	// Print summary
+	fmt.Printf("\n\n=== Transfer Summary ===\n")
+	fmt.Printf("Total Files: %d\n", len(results))
+
+	var successCount, failCount int
+	var totalBytes int64
+
+	for _, result := range results {
+		if result.Status == entity.TransferStatusCompleted {
+			successCount++
+			totalBytes += result.BytesTransferred
+		} else {
+			failCount++
+		}
+	}
+
+	fmt.Printf("Successful: %d\n", successCount)
+	fmt.Printf("Failed: %d\n", failCount)
+	fmt.Printf("Total Bytes: %d (%.2f MB)\n", totalBytes, float64(totalBytes)/(1024*1024))
+	fmt.Printf("Total Duration: %s\n", totalDuration.Round(time.Millisecond))
+
+	if totalDuration.Seconds() > 0 {
+		fmt.Printf("Average Speed: %.2f MB/s\n", float64(totalBytes)/(1024*1024)/totalDuration.Seconds())
+	}
+
+	if failCount > 0 {
+		fmt.Printf("\nFailed Files:\n")
+		for _, result := range results {
+			if result.Status == entity.TransferStatusFailed {
+				fmt.Printf("  - %s: %v\n", result.SourcePath, result.Error)
+			}
+		}
+	}
 
 	return nil
 }
