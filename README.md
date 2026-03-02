@@ -521,6 +521,40 @@ make test-verbose
 
 📖 **อ่านเพิ่มเติม:** [TESTING.md](TESTING.md) - คู่มือการทดสอบแบบละเอียด
 
+## 📦 Build & Release
+
+### Build Release Version
+
+```bash
+# Build สำหรับ platform ปัจจุบัน (optimized, no debug symbols)
+./build-release.sh
+# หรือ
+make release
+
+# Build สำหรับทุก platforms
+./build-release.sh all
+make release-all
+
+# Build platform เฉพาะ
+./build-release.sh linux amd64
+./build-release.sh darwin arm64
+./build-release.sh windows amd64
+```
+
+### Build Optimization
+
+Release builds ใช้ optimization flags:
+- **`-ldflags="-s -w"`** - ลบ debug symbols (ลด size ~40-50%)
+- **`-trimpath`** - ลบ absolute paths (reproducible builds)
+- **Version injection** - เพิ่ม version, build time, git commit
+
+**ผลลัพธ์:**
+- Development build: ~25-30 MB
+- Release build: ~15-18 MB (ลดลง 40-50%)
+- Release + UPX: ~5-7 MB (ลดลง 70-80%)
+
+📖 **อ่านเพิ่มเติม:** [BUILD.md](BUILD.md) - คู่มือการ build แบบละเอียด
+
 ## 🏗️ สถาปัตยกรรม
 
 โปรเจกต์นี้ใช้ Clean Architecture แบ่งเป็น 4 layers หลัก:
@@ -615,19 +649,6 @@ destination:
   s3:
     access_key_id: ${AWS_ACCESS_KEY}
     secret_access_key: ${AWS_SECRET_KEY}
-```
-
-## 🧪 การทดสอบ
-
-```bash
-# รัน unit tests
-go test ./...
-
-# รัน tests พร้อม coverage
-go test -cover ./...
-
-# รัน tests แบบ verbose
-go test -v ./...
 ```
 
 ## 📊 Performance Tuning
@@ -739,8 +760,16 @@ transfer:
 
 ## 🗺️ Roadmap
 
+### ✅ Completed
+- [x] Batch transfer สำหรับหลายไฟล์
+- [x] Parallel file transfer
+- [x] Wildcard pattern support (`*.pdf`, `**/*.log`)
+- [x] CLI parameters support
+- [x] Comprehensive unit tests
+- [x] Release build optimization
+
+### 🚧 In Progress / Planned
 - [ ] รองรับ checksum verification (MD5, SHA256)
-- [ ] Batch transfer สำหรับหลายไฟล์
 - [ ] Resume capability สำหรับการถ่ายโอนที่ถูกขัดจอน
 - [ ] Web UI สำหรับการจัดการ
 - [ ] Docker image
@@ -748,6 +777,8 @@ transfer:
 - [ ] Bandwidth limiting
 - [ ] Scheduling transfers
 - [ ] Email notifications
+- [ ] Compression support (gzip, zstd)
+- [ ] Incremental backup
 
 ## 💬 ติดต่อ
 

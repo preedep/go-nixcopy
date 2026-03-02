@@ -64,11 +64,33 @@ lint: ## รัน linter
 	@which golangci-lint > /dev/null || (echo "golangci-lint not installed. Run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin" && exit 1)
 	golangci-lint run ./...
 
-clean: ## ลบไฟล์ที่ build แล้ว
+clean: ## ลบไฟล์ที่ build
 	@echo "Cleaning..."
+	rm -f $(BINARY_NAME)
 	rm -rf bin/
-	rm -f coverage.out coverage.html
 	@echo "Clean complete"
+
+clean-dist: ## ลบ release artifacts
+	@echo "Cleaning dist directory..."
+	rm -rf dist/
+	@echo "Clean complete"
+
+release: ## Build release version (current platform)
+	@echo "Building release version..."
+	./build-release.sh current
+
+release-all: ## Build release version (all platforms)
+	@echo "Building release for all platforms..."
+	./build-release.sh all
+
+release-linux: ## Build release for Linux AMD64
+	./build-release.sh linux amd64
+
+release-darwin: ## Build release for macOS ARM64
+	./build-release.sh darwin arm64
+
+release-windows: ## Build release for Windows AMD64
+	./build-release.sh windows amd64
 
 docker-build: ## Build Docker image
 	@echo "Building Docker image..."

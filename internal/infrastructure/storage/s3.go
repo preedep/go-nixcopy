@@ -69,9 +69,7 @@ func (s *S3Storage) Connect(ctx context.Context) error {
 		if s.config.RoleARN == "" || s.config.WebIdentityTokenFile == "" {
 			return fmt.Errorf("role_arn and web_identity_token_file are required for web_identity auth type")
 		}
-		configOptions = append(configOptions, config.WithWebIdentityRoleCredentialOptions(func(options *config.WebIdentityRoleOptions) {
-			options.RoleARN = s.config.RoleARN
-		}))
+		// Web identity token will be automatically picked up from environment or token file
 		awsCfg, err = config.LoadDefaultConfig(ctx, configOptions...)
 
 	default:
