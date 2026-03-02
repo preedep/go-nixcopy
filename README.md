@@ -488,6 +488,39 @@ Transfer Summary:
   Status: completed
 ```
 
+## 🧪 การทดสอบ
+
+### รัน Unit Tests
+
+```bash
+# รัน tests ทั้งหมด
+go test ./...
+
+# รัน tests พร้อม verbose output
+go test -v ./...
+
+# รัน tests พร้อม coverage report
+go test -cover ./...
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out
+
+# ใช้ Makefile
+make test
+make test-coverage
+make test-verbose
+```
+
+### Test Coverage
+
+โปรเจกต์มี unit tests ครอบคลุมส่วนสำคัญ:
+- ✅ Domain entities (pattern matching, transfer)
+- ✅ Use cases (transfer, pattern matcher)
+- ✅ Configuration และ validation
+- ✅ CLI flags และ parameter handling
+- ✅ Mock storage สำหรับ testing
+
+📖 **อ่านเพิ่มเติม:** [TESTING.md](TESTING.md) - คู่มือการทดสอบแบบละเอียด
+
 ## 🏗️ สถาปัตยกรรม
 
 โปรเจกต์นี้ใช้ Clean Architecture แบ่งเป็น 4 layers หลัก:
