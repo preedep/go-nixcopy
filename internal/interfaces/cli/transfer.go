@@ -21,6 +21,43 @@ import (
 var (
 	sourcePath string
 	destPath   string
+
+	// Source flags
+	sourceType        string
+	sourceHost        string
+	sourcePort        int
+	sourceUsername    string
+	sourcePassword    string
+	sourcePrivateKey  string
+	sourceRegion      string
+	sourceBucket      string
+	sourceAccessKey   string
+	sourceSecretKey   string
+	sourceAuthType    string
+	sourceAccountName string
+	sourceAccountKey  string
+	sourceContainer   string
+
+	// Destination flags
+	destType        string
+	destHost        string
+	destPort        int
+	destUsername    string
+	destPassword    string
+	destPrivateKey  string
+	destRegion      string
+	destBucket      string
+	destAccessKey   string
+	destSecretKey   string
+	destAuthType    string
+	destAccountName string
+	destAccountKey  string
+	destContainer   string
+
+	// Transfer flags
+	bufferSize      int
+	concurrentFiles int
+	retryAttempts   int
 )
 
 var transferCmd = &cobra.Command{
@@ -33,25 +70,74 @@ var transferCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(transferCmd)
 
+	// Path flags
 	transferCmd.Flags().StringVarP(&sourcePath, "source", "s", "", "Source file path (required)")
 	transferCmd.Flags().StringVarP(&destPath, "dest", "d", "", "Destination file path (required)")
 	transferCmd.MarkFlagRequired("source")
 	transferCmd.MarkFlagRequired("dest")
+
+	// Source storage flags
+	transferCmd.Flags().StringVar(&sourceType, "source-type", "", "Source storage type (sftp, ftps, blob, s3)")
+	transferCmd.Flags().StringVar(&sourceHost, "source-host", "", "Source host")
+	transferCmd.Flags().IntVar(&sourcePort, "source-port", 0, "Source port")
+	transferCmd.Flags().StringVar(&sourceUsername, "source-username", "", "Source username")
+	transferCmd.Flags().StringVar(&sourcePassword, "source-password", "", "Source password")
+	transferCmd.Flags().StringVar(&sourcePrivateKey, "source-private-key", "", "Source private key path")
+	transferCmd.Flags().StringVar(&sourceRegion, "source-region", "", "Source S3 region")
+	transferCmd.Flags().StringVar(&sourceBucket, "source-bucket", "", "Source S3 bucket")
+	transferCmd.Flags().StringVar(&sourceAccessKey, "source-access-key", "", "Source access key")
+	transferCmd.Flags().StringVar(&sourceSecretKey, "source-secret-key", "", "Source secret key")
+	transferCmd.Flags().StringVar(&sourceAuthType, "source-auth-type", "", "Source auth type")
+	transferCmd.Flags().StringVar(&sourceAccountName, "source-account-name", "", "Source Azure account name")
+	transferCmd.Flags().StringVar(&sourceAccountKey, "source-account-key", "", "Source Azure account key")
+	transferCmd.Flags().StringVar(&sourceContainer, "source-container", "", "Source Azure container")
+
+	// Destination storage flags
+	transferCmd.Flags().StringVar(&destType, "dest-type", "", "Destination storage type (sftp, ftps, blob, s3)")
+	transferCmd.Flags().StringVar(&destHost, "dest-host", "", "Destination host")
+	transferCmd.Flags().IntVar(&destPort, "dest-port", 0, "Destination port")
+	transferCmd.Flags().StringVar(&destUsername, "dest-username", "", "Destination username")
+	transferCmd.Flags().StringVar(&destPassword, "dest-password", "", "Destination password")
+	transferCmd.Flags().StringVar(&destPrivateKey, "dest-private-key", "", "Destination private key path")
+	transferCmd.Flags().StringVar(&destRegion, "dest-region", "", "Destination S3 region")
+	transferCmd.Flags().StringVar(&destBucket, "dest-bucket", "", "Destination S3 bucket")
+	transferCmd.Flags().StringVar(&destAccessKey, "dest-access-key", "", "Destination access key")
+	transferCmd.Flags().StringVar(&destSecretKey, "dest-secret-key", "", "Destination secret key")
+	transferCmd.Flags().StringVar(&destAuthType, "dest-auth-type", "", "Destination auth type")
+	transferCmd.Flags().StringVar(&destAccountName, "dest-account-name", "", "Destination Azure account name")
+	transferCmd.Flags().StringVar(&destAccountKey, "dest-account-key", "", "Destination Azure account key")
+	transferCmd.Flags().StringVar(&destContainer, "dest-container", "", "Destination Azure container")
+
+	// Transfer flags
+	transferCmd.Flags().IntVar(&bufferSize, "buffer-size", 0, "Buffer size in bytes (default: 32MB)")
+	transferCmd.Flags().IntVar(&concurrentFiles, "concurrent-files", 0, "Number of concurrent file transfers")
+	transferCmd.Flags().IntVar(&retryAttempts, "retry-attempts", 0, "Number of retry attempts")
 }
 
 func runTransfer(cmd *cobra.Command, args []string) error {
-	if cfgFile == "" {
-		cfgFile = "config.yaml"
-	}
-
-	viper.SetConfigFile(cfgFile)
-	if err := viper.ReadInConfig(); err != nil {
-		return fmt.Errorf("failed to read config file: %w", err)
-	}
-
 	var cfg config.Config
-	if err := viper.Unmarshal(&cfg); err != nil {
-		return fmt.Errorf("failed to unmarshal config: %w", err)
+
+	// Try to load config file if it exists
+	if cfgFile != "" {
+		viper.SetConfigFile(cfgFile)
+		if err := viper.ReadInConfig(); err == nil {
+			if err := viper.Unmarshal(&cfg); err != nil {
+				return fmt.Errorf("failed to unmarshal config: %w", err)
+			}
+		}
+	} else {
+		// Use default config if no config file
+		cfg = *config.DefaultConfig()
+	}
+
+	// Override config with CLI flags
+	if err := applyCliFlags(&cfg); err != nil {
+		return fmt.Errorf("failed to apply CLI flags: %w", err)
+	}
+
+	// Validate configuration
+	if err := validateConfig(&cfg); err != nil {
+		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
 	log, err := logger.NewLogger(&cfg.Logging)

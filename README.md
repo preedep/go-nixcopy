@@ -256,8 +256,23 @@ s3:
 # แสดงความช่วยเหลือ
 nixcopy --help
 
-# ถ่ายโอนไฟล์
+# ถ่ายโอนไฟล์ (ใช้ config file)
 nixcopy transfer --config config.yaml --source /path/to/source/file --dest /path/to/dest/file
+
+# ถ่ายโอนไฟล์ (ใช้ CLI parameters - ไม่ต้องมี config file)
+nixcopy transfer \
+  --source-type sftp \
+  --source-host sftp.example.com \
+  --source-username user \
+  --source-password pass \
+  --source /remote/file.txt \
+  --dest-type s3 \
+  --dest-region ap-southeast-1 \
+  --dest-bucket my-bucket \
+  --dest-auth-type access_key \
+  --dest-access-key AKIAIOSFODNN7EXAMPLE \
+  --dest-secret-key wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY \
+  --dest /backup/file.txt
 
 # แสดงรายการไฟล์ใน source storage
 nixcopy list --config config.yaml --path /remote/path --source
@@ -266,9 +281,42 @@ nixcopy list --config config.yaml --path /remote/path --source
 nixcopy list --config config.yaml --path /remote/path --source=false
 ```
 
+### 🎯 การใช้ CLI Parameters
+
+go-nixcopy รองรับการส่ง parameters ผ่าน command line ได้ 3 แบบ:
+
+1. **ใช้ Config File อย่างเดียว** (แนะนำสำหรับ production)
+   ```bash
+   nixcopy transfer -c config.yaml -s /source/file -d /dest/file
+   ```
+
+2. **ใช้ CLI Parameters อย่างเดียว** (ไม่ต้องมี config file)
+   ```bash
+   nixcopy transfer --source-type sftp --source-host ... -s /file -d /file
+   ```
+
+3. **ผสมกัน - Config File + CLI Parameters** (CLI override config)
+   ```bash
+   nixcopy transfer -c config.yaml \
+     --source-password $SFTP_PASSWORD \
+     --dest-access-key $AWS_ACCESS_KEY \
+     -s /source/file -d /dest/file
+   ```
+
+📖 **อ่านเพิ่มเติม:** [CLI_USAGE.md](CLI_USAGE.md) - คู่มือการใช้ CLI parameters แบบละเอียด
+
+#### ลำดับความสำคัญ (Precedence)
+
+1. **CLI Flags** (สูงสุด) - Override ทุกอย่าง
+2. **Environment Variables** - ใช้เมื่อไม่มี CLI flags
+3. **Config File** - ใช้เมื่อไม่มี CLI flags และ env vars
+4. **Default Values** (ต่ำสุด)
+
 ### ตัวอย่างการใช้งาน
 
 #### 1. ถ่ายโอนไฟล์จาก SFTP ไปยัง AWS S3
+
+**แบบที่ 1: ใช้ Config File**
 
 ```bash
 # สร้างไฟล์ config
@@ -306,6 +354,47 @@ EOF
 
 # ถ่ายโอนไฟล์
 nixcopy transfer -c config.yaml -s /remote/data/file.zip -d backup/file.zip
+```
+
+**แบบที่ 2: ใช้ CLI Parameters (ไม่ต้องมี config file)**
+
+```bash
+nixcopy transfer \
+  --source-type sftp \
+  --source-host sftp.example.com \
+  --source-port 22 \
+  --source-username user \
+  --source-private-key ~/.ssh/id_rsa \
+  -s /remote/data/file.zip \
+  --dest-type s3 \
+  --dest-region ap-southeast-1 \
+  --dest-bucket my-s3-bucket \
+  --dest-auth-type access_key \
+  --dest-access-key AKIAIOSFODNN7EXAMPLE \
+  --dest-secret-key wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY \
+  -d backup/file.zip
+```
+
+**แบบที่ 3: ใช้ Environment Variables**
+
+```bash
+export AWS_ACCESS_KEY_ID="AKIAIOSFODNN7EXAMPLE"
+export AWS_SECRET_ACCESS_KEY="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+export SFTP_PASSWORD="your-password"
+
+nixcopy transfer \
+  --source-type sftp \
+  --source-host sftp.example.com \
+  --source-username user \
+  --source-password "$SFTP_PASSWORD" \
+  -s /remote/data/file.zip \
+  --dest-type s3 \
+  --dest-region ap-southeast-1 \
+  --dest-bucket my-s3-bucket \
+  --dest-auth-type access_key \
+  --dest-access-key "$AWS_ACCESS_KEY_ID" \
+  --dest-secret-key "$AWS_SECRET_ACCESS_KEY" \
+  -d backup/file.zip
 ```
 
 #### 2. ถ่ายโอนจาก Azure Blob Storage ไปยัง FTPS
