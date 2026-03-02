@@ -1,0 +1,36 @@
+# ตัวอย่าง: รันบน Azure VM → ถ่ายโอนไปยัง AWS S3
+#
+# สภาพแวดล้อม: Azure Virtual Machine
+# Source: Azure Blob (ใช้ Managed Identity ของ Azure VM)
+# Destination: S3 (ใช้ Access Key - ไม่สามารถใช้ IAM Role ได้)
+#
+# หมายเหตุ: IAM Role ใช้ได้เฉพาะบน AWS infrastructure เท่านั้น
+
+source:
+  type: blob
+  blob:
+    account_name: sourcestorageaccount
+    container_name: source-container
+    auth_type: managed_identity  # ใช้ managed identity ของ Azure VM
+    client_id: ""  # ระบุถ้าใช้ user-assigned managed identity
+
+destination:
+  type: s3
+  s3:
+    region: us-east-1
+    bucket: destination-bucket
+    auth_type: access_key  # ต้องใช้ credentials (ไม่สามารถใช้ iam_role บน Azure)
+    access_key_id: AKIAIOSFODNN7EXAMPLE
+    secret_access_key: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+
+transfer:
+  buffer_size: 33554432
+  concurrent_files: 4
+  retry_attempts: 3
+  retry_delay: 5s
+  timeout: 30m
+
+logging:
+  level: info
+  format: json
+  output_path: stdout

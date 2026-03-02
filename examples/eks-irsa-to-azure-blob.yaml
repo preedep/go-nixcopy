@@ -1,0 +1,45 @@
+# ตัวอย่าง: รันบน EKS (Kubernetes on AWS) → ถ่ายโอนไปยัง Azure Blob
+#
+# สภาพแวดล้อม: Amazon EKS with IRSA (IAM Roles for Service Accounts)
+# Source: S3 (ใช้ Web Identity/OIDC token)
+# Destination: Azure Blob (ใช้ Shared Key หรือ Service Principal)
+#
+# Prerequisites:
+# - EKS cluster with IRSA enabled
+# - Service account annotated with IAM role
+# - Token file mounted at /var/run/secrets/eks.amazonaws.com/serviceaccount/token
+
+source:
+  type: s3
+  s3:
+    region: us-east-1
+    bucket: source-bucket
+    auth_type: web_identity
+    role_arn: arn:aws:iam::123456789012:role/EKSPodRole
+    web_identity_token_file: /var/run/secrets/eks.amazonaws.com/serviceaccount/token
+
+destination:
+  type: blob
+  blob:
+    account_name: deststorageaccount
+    container_name: destination-container
+    # Option 1: ใช้ Shared Key
+    auth_type: shared_key
+    account_key: YOUR_ACCOUNT_KEY
+    # Option 2: ใช้ Service Principal (แนะนำสำหรับ Kubernetes)
+    # auth_type: service_principal
+    # tenant_id: your-tenant-id
+    # client_id: your-client-id
+    # client_secret: your-client-secret
+
+transfer:
+  buffer_size: 33554432
+  concurrent_files: 4
+  retry_attempts: 3
+  retry_delay: 5s
+  timeout: 30m
+
+logging:
+  level: info
+  format: json
+  output_path: stdout
