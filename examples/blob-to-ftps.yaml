@@ -1,0 +1,32 @@
+# ตัวอย่าง: ถ่ายโอนไฟล์จาก Azure Blob Storage ไปยัง FTPS
+
+source:
+  type: blob
+  blob:
+    account_name: mystorageaccount
+    account_key: YOUR_ACCOUNT_KEY
+    container_name: source-container
+
+destination:
+  type: ftps
+  ftps:
+    host: ftps.example.com
+    port: 21
+    username: ftpsuser
+    password: ftpspassword
+    timeout: 30s
+    tls_mode: explicit
+    skip_verify: false
+
+transfer:
+  buffer_size: 33554432
+  concurrent_files: 2
+  retry_attempts: 3
+  retry_delay: 5s
+  timeout: 30m
+  verify_checksum: false
+
+logging:
+  level: info
+  format: console
+  output_path: stdout

@@ -1,0 +1,10 @@
+bin/
+.git/
+.gitignore
+*.md
+coverage.out
+coverage.html
+.vscode/
+.idea/
+*.log
+config.yaml

@@ -1,0 +1,29 @@
+# ตัวอย่าง: ถ่ายโอนไฟล์จาก AWS S3 ไปยัง Azure Blob Storage
+
+source:
+  type: s3
+  s3:
+    region: us-east-1
+    bucket: source-bucket
+    access_key_id: YOUR_AWS_ACCESS_KEY
+    secret_access_key: YOUR_AWS_SECRET_KEY
+
+destination:
+  type: blob
+  blob:
+    account_name: mystorageaccount
+    account_key: YOUR_AZURE_ACCOUNT_KEY
+    container_name: destination-container
+
+transfer:
+  buffer_size: 67108864  # 64MB
+  concurrent_files: 8
+  retry_attempts: 5
+  retry_delay: 10s
+  timeout: 60m
+  verify_checksum: false
+
+logging:
+  level: debug
+  format: json
+  output_path: /var/log/nixcopy.log

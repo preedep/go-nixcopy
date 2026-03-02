@@ -1,0 +1,88 @@
+# ตัวอย่างไฟล์ Configuration สำหรับ go-nixcopy
+
+# การตั้งค่า Source (แหล่งที่มา)
+source:
+  # ประเภทของ storage: sftp, ftps, blob, s3
+  type: sftp
+  
+  # การตั้งค่า SFTP (ใช้เมื่อ type: sftp)
+  sftp:
+    host: sftp.example.com
+    port: 22
+    username: user
+    password: password
+    # หรือใช้ private key แทน password
+    # private_key_path: /path/to/private/key
+    # private_key_passphrase: passphrase
+    timeout: 30s
+    max_packet_size: 32768
+
+  # การตั้งค่า FTPS (ใช้เมื่อ type: ftps)
+  # ftps:
+  #   host: ftps.example.com
+  #   port: 21
+  #   username: user
+  #   password: password
+  #   timeout: 30s
+  #   tls_mode: explicit  # explicit หรือ implicit
+  #   skip_verify: false
+
+  # การตั้งค่า Azure Blob Storage (ใช้เมื่อ type: blob)
+  # blob:
+  #   account_name: mystorageaccount
+  #   account_key: your-account-key
+  #   container_name: mycontainer
+  #   endpoint: https://mystorageaccount.blob.core.windows.net/
+
+  # การตั้งค่า AWS S3 (ใช้เมื่อ type: s3)
+  # s3:
+  #   region: us-east-1
+  #   bucket: my-bucket
+  #   access_key_id: AKIAIOSFODNN7EXAMPLE
+  #   secret_access_key: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+  #   endpoint: ""  # ใช้สำหรับ S3-compatible storage เช่น MinIO
+  #   use_path_style: false
+
+# การตั้งค่า Destination (ปลายทาง)
+destination:
+  type: s3
+  
+  s3:
+    region: ap-southeast-1
+    bucket: my-destination-bucket
+    access_key_id: AKIAIOSFODNN7EXAMPLE
+    secret_access_key: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+    endpoint: ""
+    use_path_style: false
+
+# การตั้งค่าการถ่ายโอนไฟล์
+transfer:
+  # ขนาด buffer สำหรับการอ่าน/เขียน (bytes)
+  # ค่าเริ่มต้น: 32MB (32 * 1024 * 1024)
+  buffer_size: 33554432
+  
+  # จำนวนไฟล์ที่สามารถถ่ายโอนพร้อมกันได้
+  concurrent_files: 4
+  
+  # จำนวนครั้งที่จะลองใหม่เมื่อเกิดข้อผิดพลาด
+  retry_attempts: 3
+  
+  # ระยะเวลารอก่อนลองใหม่
+  retry_delay: 5s
+  
+  # Timeout สำหรับการถ่ายโอนแต่ละไฟล์
+  timeout: 30m
+  
+  # ตรวจสอบ checksum หลังการถ่ายโอน (ยังไม่รองรับ)
+  verify_checksum: false
+
+# การตั้งค่า Logging
+logging:
+  # ระดับ log: debug, info, warn, error
+  level: info
+  
+  # รูปแบบ log: json, console
+  format: json
+  
+  # ที่เก็บ log: stdout หรือ path ของไฟล์
+  output_path: stdout

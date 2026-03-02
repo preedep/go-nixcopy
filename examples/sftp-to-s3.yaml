@@ -1,0 +1,32 @@
+# ตัวอย่าง: ถ่ายโอนไฟล์จาก SFTP ไปยัง AWS S3
+
+source:
+  type: sftp
+  sftp:
+    host: sftp.example.com
+    port: 22
+    username: sftpuser
+    private_key_path: ~/.ssh/id_rsa
+    timeout: 30s
+    max_packet_size: 32768
+
+destination:
+  type: s3
+  s3:
+    region: ap-southeast-1
+    bucket: my-s3-bucket
+    access_key_id: YOUR_ACCESS_KEY
+    secret_access_key: YOUR_SECRET_KEY
+
+transfer:
+  buffer_size: 33554432
+  concurrent_files: 4
+  retry_attempts: 3
+  retry_delay: 5s
+  timeout: 30m
+  verify_checksum: false
+
+logging:
+  level: info
+  format: json
+  output_path: stdout
