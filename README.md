@@ -103,6 +103,29 @@ logging:
   output_path: stdout        # stdout หรือ path ของไฟล์
 ```
 
+## 🔐 Authentication
+
+go-nixcopy รองรับวิธีการ authentication หลายแบบสำหรับแต่ละ cloud provider เพื่อความยืดหยุนและความปลอดภัย
+
+### AWS S3 Authentication Methods
+
+- **Access Key** - Static credentials (development/testing)
+- **IAM Role** - สำหรับ EC2, ECS, Lambda (แนะนำ)
+- **Instance Profile** - สำหรับ EC2 instances
+- **Assume Role** - Cross-account access
+- **Web Identity** - สำหรับ Kubernetes (EKS IRSA)
+- **AWS Profile** - ใช้ credentials จาก ~/.aws/credentials
+
+### Azure Blob Storage Authentication Methods
+
+- **Shared Key** - Account key (development/testing)
+- **SAS Token** - Temporary access with limited permissions
+- **Connection String** - Quick setup
+- **Managed Identity** - สำหรับ Azure VMs, App Services (แนะนำ)
+- **Service Principal** - สำหรับ applications, CI/CD
+
+📖 **อ่านเพิ่มเติม:** [AUTHENTICATION.md](AUTHENTICATION.md) - คู่มือการ authentication แบบละเอียดพร้อมตัวอย่าง
+
 ### การตั้งค่าแต่ละ Storage Type
 
 #### SFTP Configuration
@@ -135,24 +158,94 @@ ftps:
 
 #### Azure Blob Storage Configuration
 
+**ตัวอย่าง 1: Shared Key**
 ```yaml
 blob:
   account_name: mystorageaccount
-  account_key: YOUR_ACCOUNT_KEY
   container_name: mycontainer
+  auth_type: shared_key
+  account_key: YOUR_ACCOUNT_KEY
   endpoint: https://mystorageaccount.blob.core.windows.net/  # optional
+```
+
+**ตัวอย่าง 2: Managed Identity (แนะนำสำหรับ Azure VMs)**
+```yaml
+blob:
+  account_name: mystorageaccount
+  container_name: mycontainer
+  auth_type: managed_identity
+  client_id: ""  # ระบุเฉพาะถ้าใช้ user-assigned managed identity
+```
+
+**ตัวอย่าง 3: Service Principal**
+```yaml
+blob:
+  account_name: mystorageaccount
+  container_name: mycontainer
+  auth_type: service_principal
+  tenant_id: your-tenant-id
+  client_id: your-client-id
+  client_secret: your-client-secret
+```
+
+**ตัวอย่าง 4: SAS Token**
+```yaml
+blob:
+  account_name: mystorageaccount
+  container_name: mycontainer
+  auth_type: sas_token
+  sas_token: "sv=2021-06-08&ss=bfqt&srt=sco&sp=rwdlacupiytfx&se=2024-12-31T23:59:59Z..."
+```
+
+**ตัวอย่าง 5: Connection String**
+```yaml
+blob:
+  auth_type: connection_string
+  connection_string: "DefaultEndpointsProtocol=https;AccountName=mystorageaccount;AccountKey=YOUR_KEY;EndpointSuffix=core.windows.net"
+  container_name: mycontainer
 ```
 
 #### AWS S3 Configuration
 
+**ตัวอย่าง 1: Access Key (Static Credentials)**
 ```yaml
 s3:
   region: ap-southeast-1
   bucket: my-bucket
+  auth_type: access_key
   access_key_id: YOUR_ACCESS_KEY
   secret_access_key: YOUR_SECRET_KEY
   endpoint: ""              # ใช้สำหรับ S3-compatible (เช่น MinIO)
   use_path_style: false     # ใช้ path-style URLs
+```
+
+**ตัวอย่าง 2: IAM Role (แนะนำสำหรับ EC2/ECS)**
+```yaml
+s3:
+  region: ap-southeast-1
+  bucket: my-bucket
+  auth_type: iam_role       # ใช้ IAM role ที่ attach กับ instance
+```
+
+**ตัวอย่าง 3: Assume Role (Cross-account)**
+```yaml
+s3:
+  region: ap-southeast-1
+  bucket: my-bucket
+  auth_type: assume_role
+  role_arn: arn:aws:iam::123456789012:role/MyRole
+  role_session_name: nixcopy-session
+  external_id: my-external-id  # optional
+```
+
+**ตัวอย่าง 4: Web Identity (EKS IRSA)**
+```yaml
+s3:
+  region: ap-southeast-1
+  bucket: my-bucket
+  auth_type: web_identity
+  role_arn: arn:aws:iam::123456789012:role/EKSPodRole
+  web_identity_token_file: /var/run/secrets/eks.amazonaws.com/serviceaccount/token
 ```
 
 ## 📖 วิธีการใช้งาน

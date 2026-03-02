@@ -1,0 +1,32 @@
+# ตัวอย่าง: ถ่ายโอนจาก Azure Blob (ใช้ Service Principal) ไปยัง S3 (ใช้ Access Key)
+
+source:
+  type: blob
+  blob:
+    account_name: sourcestorageaccount
+    container_name: source-container
+    auth_type: service_principal
+    tenant_id: your-tenant-id
+    client_id: your-client-id
+    client_secret: your-client-secret
+
+destination:
+  type: s3
+  s3:
+    region: us-west-2
+    bucket: destination-bucket
+    auth_type: access_key
+    access_key_id: AKIAIOSFODNN7EXAMPLE
+    secret_access_key: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+
+transfer:
+  buffer_size: 33554432
+  concurrent_files: 4
+  retry_attempts: 3
+  retry_delay: 5s
+  timeout: 30m
+
+logging:
+  level: info
+  format: json
+  output_path: stdout

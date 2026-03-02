@@ -1,0 +1,31 @@
+# ตัวอย่าง: ถ่ายโอนจาก SFTP ไปยัง S3 (ใช้ AWS Profile)
+
+source:
+  type: sftp
+  sftp:
+    host: sftp.example.com
+    port: 22
+    username: sftpuser
+    private_key_path: ~/.ssh/id_rsa
+    timeout: 30s
+    max_packet_size: 32768
+
+destination:
+  type: s3
+  s3:
+    region: ap-southeast-1
+    bucket: destination-bucket
+    auth_type: access_key
+    profile: production  # ใช้ AWS profile ชื่อ "production" จาก ~/.aws/credentials
+
+transfer:
+  buffer_size: 33554432
+  concurrent_files: 4
+  retry_attempts: 3
+  retry_delay: 5s
+  timeout: 30m
+
+logging:
+  level: info
+  format: json
+  output_path: stdout
