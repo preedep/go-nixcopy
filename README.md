@@ -105,12 +105,9 @@ transfer:
   timeout: 30m
   verify_checksum: false     # SHA256 end-to-end integrity check
   enable_resume: false       # resume interrupted transfers (local & SFTP)
-
-logging:
-  level: info                # debug, info, warn, error
-  format: json               # json, console
-  output_path: stdout        # stdout หรือ path ของไฟล์
 ```
+
+> **Note:** The `logging:` block is deprecated and no longer read. All logs are now emitted in standard-app-log v1.0 JSON format to stdout automatically. See [Application Logging](#-application-logging) below.
 
 ## 🔐 Authentication
 
@@ -717,6 +714,60 @@ nixcopy transfer --resume -s /data/large_file.tar.gz -d /backup/large_file.tar.g
 - Progress แสดงเป็น % ของไฟล์ทั้งหมด (รวม bytes ที่โอนไปแล้ว)
 - `TransferResult.ResumedFrom` เก็บ byte offset ที่ต่อการโอน
 
+## 📋 Application Logging
+
+go-nixcopy emits **structured JSON logs to stdout** conforming to [standard-app-log v1.0](https://github.com/preedep/standard-app-log). Every log line contains a fixed set of standard fields plus app-specific fields merged at the top level.
+
+### Log Types
+
+| `log_type` | When emitted |
+|---|---|
+| `APP_LOG` | Application lifecycle, retry warnings, batch start |
+| `REQ_EX_LOG` | Initiating a connection or read from source storage |
+| `RES_EX_LOG` | Write completion, checksum result, transfer success/failure |
+
+### Example Output
+
+```json
+{"event_date_time":"2026-04-28T14:47:03.301Z","log_type":"REQ_EX_LOG","level":"INFO","app_id":"go-nixcopy","app_version":"1.0.0","service_id":"sftp-to-s3","service_pod_name":"nixcopy-pod-abc123","message":"Starting transfer","correlation_id":"b1753d4b-ef4e-4c84-a53b-afb377ca2cc4","request_id":"b111895b-37c8-4448-833e-3191507b5aeb","source":"/data/exports/report.csv","destination":"s3://my-bucket/processed/report.csv"}
+{"event_date_time":"2026-04-28T14:47:05.812Z","log_type":"RES_EX_LOG","level":"INFO","app_id":"go-nixcopy","app_version":"1.0.0","service_id":"sftp-to-s3","service_pod_name":"nixcopy-pod-abc123","message":"Transfer completed","correlation_id":"b1753d4b-ef4e-4c84-a53b-afb377ca2cc4","request_id":"b111895b-37c8-4448-833e-3191507b5aeb","bytes":1048576,"execution_time":2511,"source":"/data/exports/report.csv","destination":"s3://my-bucket/processed/report.csv"}
+```
+
+### Context Injection via Environment Variables
+
+These env vars are read at startup and embedded in every log line:
+
+| Env var | Field in log | Default | Purpose |
+|---|---|---|---|
+| `NIXCOPY_CORRELATION_ID` | `correlation_id` | auto-generated UUID | Carry Airflow DAG run ID or upstream trace ID through all logs |
+| `NIXCOPY_APP_ID` | `app_id` | `go-nixcopy` | Application identifier |
+| `NIXCOPY_APP_VERSION` | `app_version` | `1.0.0` | Application version (inject from image tag) |
+| `POD_NAME` | `service_pod_name` | _(empty)_ | K8s pod name via Downward API |
+
+### Kubernetes / Airflow KubernetesPodOperator Usage
+
+```python
+KubernetesPodOperator(
+    task_id="transfer_sftp_to_s3",
+    image="your-registry/nixcopy:latest",
+    arguments=["transfer", "--config", "/app/config/config.yaml",
+               "--source-path", "/data/*.csv", "--dest-path", "processed/"],
+    env_vars={
+        "NIXCOPY_CORRELATION_ID": "{{ run_id }}",   # Airflow DAG run ID
+        "NIXCOPY_APP_VERSION":    "1.2.0",
+        "POD_NAME":               "{{ task_instance.hostname }}",
+        "SFTP_PASSWORD":          "...",             # from K8s Secret
+        "AWS_ACCESS_KEY_ID":      "...",
+        "AWS_SECRET_ACCESS_KEY":  "...",
+    },
+    get_logs=True,
+)
+```
+
+Logs go to stdout and are collected automatically by the K8s logging stack (Loki, CloudWatch, etc.).
+
+---
+
 ## 🔐 Security Best Practices
 
 1. **ไม่ hardcode credentials** ในโค้ด
@@ -843,7 +894,8 @@ transfer:
 - [AWS SDK for Go v2](https://github.com/aws/aws-sdk-go-v2) - AWS S3
 - [Cobra](https://github.com/spf13/cobra) - CLI framework
 - [Viper](https://github.com/spf13/viper) - Configuration management
-- [Zap](https://github.com/uber-go/zap) - Logging
+- [standard-app-log](https://github.com/preedep/standard-app-log) - Application log schema
+- [Zap](https://github.com/uber-go/zap) - Logging (internal infrastructure)
 
 ## 📚 เอกสารเพิ่มเติม
 
@@ -866,6 +918,7 @@ transfer:
 - [x] Professional-grade code documentation
 - [x] SHA-256 checksum verification (end-to-end integrity)
 - [x] Resume capability สำหรับการถ่ายโอนที่ถูกขัดจอน (Local & SFTP)
+- [x] Standard application logging (standard-app-log v1.0) — structured JSON to stdout, K8s/Airflow ready
 
 ### 🚧 In Progress / Planned
 - [ ] Web UI สำหรับการจัดการ
