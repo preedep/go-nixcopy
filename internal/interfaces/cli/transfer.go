@@ -15,7 +15,6 @@ import (
 	"github.com/preedep/go-nixcopy/internal/usecase"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"go.uber.org/zap"
 )
 
 var (
@@ -145,11 +144,27 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	log, err := logger.NewLogger(&cfg.Logging)
-	if err != nil {
-		return fmt.Errorf("failed to create logger: %w", err)
+	appID := os.Getenv("NIXCOPY_APP_ID")
+	if appID == "" {
+		appID = "go-nixcopy"
 	}
-	defer func() { _ = log.Sync() }()
+	appVersion := os.Getenv("NIXCOPY_APP_VERSION")
+	if appVersion == "" {
+		appVersion = "1.0.0"
+	}
+
+	log := logger.NewStandardLogger(
+		logger.WithAppID(appID),
+		logger.WithAppVersion(appVersion),
+		logger.WithServiceID(fmt.Sprintf("%s-to-%s", cfg.Source.Type, cfg.Destination.Type)),
+		logger.WithPodName(os.Getenv("POD_NAME")),
+	)
+
+	corrID := os.Getenv("NIXCOPY_CORRELATION_ID")
+	if corrID == "" {
+		corrID = logger.GenerateID()
+	}
+	log = log.WithCorrelation(corrID, logger.GenerateID())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -158,7 +173,7 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigChan
-		log.Info("Received interrupt signal, canceling transfer...")
+		log.Warn("Received interrupt signal, canceling transfer")
 		cancel()
 	}()
 
@@ -172,13 +187,13 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create destination storage: %w", err)
 	}
 
-	log.Info("Connecting to source storage", zap.String("type", string(cfg.Source.Type)))
+	log.InfoReqEx("Connecting to source storage", logger.F("type", string(cfg.Source.Type)))
 	if err := sourceStorage.Connect(ctx); err != nil {
 		return fmt.Errorf("failed to connect to source: %w", err)
 	}
 	defer func() { _ = sourceStorage.Disconnect(ctx) }()
 
-	log.Info("Connecting to destination storage", zap.String("type", string(cfg.Destination.Type)))
+	log.InfoReqEx("Connecting to destination storage", logger.F("type", string(cfg.Destination.Type)))
 	if err := destStorage.Connect(ctx); err != nil {
 		return fmt.Errorf("failed to connect to destination: %w", err)
 	}
@@ -221,8 +236,8 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 		matchedFiles, err := patternMatcher.MatchFiles(ctx, srcPath)
 		if err != nil {
 			log.Warn("Failed to match pattern",
-				zap.String("pattern", srcPath),
-				zap.Error(err),
+				logger.F("pattern", srcPath),
+				logger.FError(err),
 			)
 			continue
 		}
@@ -234,8 +249,8 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 	}
 
 	log.Info("Files to transfer",
-		zap.Int("count", len(filesToTransfer)),
-		zap.Int("concurrent", cfg.Transfer.ConcurrentFiles),
+		logger.F("count", len(filesToTransfer)),
+		logger.F("concurrent", cfg.Transfer.ConcurrentFiles),
 	)
 
 	progressChan := make(chan entity.TransferProgress, 100)

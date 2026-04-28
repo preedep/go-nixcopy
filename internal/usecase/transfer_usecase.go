@@ -12,10 +12,11 @@ import (
 	"path/filepath"
 	"time"
 
+	applog "github.com/preedep/go-nixcopy/internal/infrastructure/logger"
+
 	"github.com/preedep/go-nixcopy/internal/domain/entity"
 	"github.com/preedep/go-nixcopy/internal/domain/repository"
 	"github.com/preedep/go-nixcopy/internal/domain/service"
-	"go.uber.org/zap"
 )
 
 // TransferUseCase implements the core file transfer business logic.
@@ -35,10 +36,10 @@ import (
 // TransferUseCase is safe for concurrent use. Multiple goroutines can call
 // Transfer() or TransferBatch() simultaneously on the same instance.
 type TransferUseCase struct {
-	source repository.StorageReader // Source storage for reading files
-	dest   repository.Storage       // Destination storage (read back needed for checksum verification)
-	config *entity.TransferConfig   // Transfer configuration (buffer size, retries, etc.)
-	logger *zap.Logger              // Structured logger for operational visibility
+	source repository.StorageReader  // Source storage for reading files
+	dest   repository.Storage        // Destination storage (read back needed for checksum verification)
+	config *entity.TransferConfig    // Transfer configuration (buffer size, retries, etc.)
+	logger *applog.StandardLogger    // Structured logger for operational visibility
 }
 
 // NewTransferUseCase creates a new TransferUseCase instance.
@@ -65,7 +66,7 @@ func NewTransferUseCase(
 	source repository.StorageReader,
 	dest repository.Storage,
 	config *entity.TransferConfig,
-	logger *zap.Logger,
+	logger *applog.StandardLogger,
 ) service.TransferService {
 	return &TransferUseCase{
 		source: source,
@@ -138,9 +139,9 @@ func (t *TransferUseCase) Transfer(
 		defer close(progressChan)
 	}
 
-	t.logger.Info("Starting transfer",
-		zap.String("source", sourcePath),
-		zap.String("destination", destPath),
+	t.logger.InfoReqEx("Starting transfer",
+		applog.F("source", sourcePath),
+		applog.F("destination", destPath),
 	)
 
 	// Stat the source file to validate it exists and get metadata
@@ -164,7 +165,7 @@ func (t *TransferUseCase) Transfer(
 	canResume := t.config.EnableResume && srcCanResume && destCanResume
 	if t.config.EnableResume && !canResume {
 		t.logger.Warn("Resume requested but not supported by one or both storage backends, using full transfer",
-			zap.String("source", sourcePath),
+			applog.F("source", sourcePath),
 		)
 	}
 
@@ -175,8 +176,8 @@ func (t *TransferUseCase) Transfer(
 		// Wait before retry (skip on first attempt)
 		if attempt > 0 {
 			t.logger.Warn("Retrying transfer",
-				zap.Int("attempt", attempt),
-				zap.String("source", sourcePath),
+				applog.F("attempt", attempt),
+				applog.F("source", sourcePath),
 			)
 			time.Sleep(t.config.RetryDelay)
 		}
@@ -188,10 +189,10 @@ func (t *TransferUseCase) Transfer(
 			if destStat, err := t.dest.Stat(ctx, destPath); err == nil &&
 				destStat.Size > 0 && destStat.Size < stat.Size {
 				resumeOffset = destStat.Size
-				t.logger.Info("Resuming interrupted transfer",
-					zap.String("source", sourcePath),
-					zap.Int64("resume_offset", resumeOffset),
-					zap.Int64("total_size", stat.Size),
+				t.logger.InfoReqEx("Resuming interrupted transfer",
+					applog.F("source", sourcePath),
+					applog.F("resume_offset", resumeOffset),
+					applog.F("total_size", stat.Size),
 				)
 			}
 		}
@@ -219,8 +220,8 @@ func (t *TransferUseCase) Transfer(
 			streamReader = csReader
 		} else if t.config.VerifyChecksum && resumeOffset > 0 {
 			t.logger.Warn("Checksum verification skipped for resumed transfer",
-				zap.String("source", sourcePath),
-				zap.Int64("resume_offset", resumeOffset),
+				applog.F("source", sourcePath),
+				applog.F("resume_offset", resumeOffset),
 			)
 		}
 
@@ -271,18 +272,18 @@ func (t *TransferUseCase) Transfer(
 
 			if sourceChecksum != destChecksum {
 				lastErr = fmt.Errorf("checksum mismatch: source=%s destination=%s", sourceChecksum, destChecksum)
-				t.logger.Warn("Checksum mismatch, retrying",
-					zap.String("source", sourcePath),
-					zap.String("source_checksum", sourceChecksum),
-					zap.String("dest_checksum", destChecksum),
+				t.logger.WarnResEx("Checksum mismatch, retrying",
+					applog.F("source", sourcePath),
+					applog.F("source_checksum", sourceChecksum),
+					applog.F("dest_checksum", destChecksum),
 				)
 				continue
 			}
 
 			result.Checksum = sourceChecksum
-			t.logger.Info("Checksum verified",
-				zap.String("source", sourcePath),
-				zap.String("checksum", sourceChecksum),
+			t.logger.InfoResEx("Checksum verified",
+				applog.F("source", sourcePath),
+				applog.F("checksum", sourceChecksum),
 			)
 		}
 
@@ -291,11 +292,11 @@ func (t *TransferUseCase) Transfer(
 		result.Duration = time.Since(startTime)
 		result.Status = entity.TransferStatusCompleted
 
-		t.logger.Info("Transfer completed",
-			zap.String("source", sourcePath),
-			zap.String("destination", destPath),
-			zap.Int64("bytes", stat.Size),
-			zap.Duration("duration", result.Duration),
+		t.logger.InfoResEx("Transfer completed",
+			applog.F("source", sourcePath),
+			applog.F("destination", destPath),
+			applog.F("bytes", stat.Size),
+			applog.FDurationMs(result.Duration),
 		)
 
 		if progressChan != nil {
@@ -402,8 +403,8 @@ func (t *TransferUseCase) TransferBatch(
 	}, len(sourcePaths))
 
 	t.logger.Info("Starting batch transfer",
-		zap.Int("total_files", len(sourcePaths)),
-		zap.Int("concurrent", t.config.ConcurrentFiles),
+		applog.F("total_files", len(sourcePaths)),
+		applog.F("concurrent", t.config.ConcurrentFiles),
 	)
 
 	// Launch goroutines for each file transfer
@@ -452,16 +453,16 @@ func (t *TransferUseCase) TransferBatch(
 			// This call includes retry logic and progress reporting
 			result, err := t.Transfer(ctx, src, destPath, fileProgressChan)
 			if err != nil {
-				t.logger.Error("Transfer failed",
-					zap.String("source", src),
-					zap.String("destination", destPath),
-					zap.Error(err),
+				t.logger.ErrorResEx("Transfer failed",
+					applog.F("source", src),
+					applog.F("destination", destPath),
+					applog.FError(err),
 				)
 			} else {
-				t.logger.Info("Transfer succeeded",
-					zap.String("source", src),
-					zap.String("destination", destPath),
-					zap.Int64("bytes", result.BytesTransferred),
+				t.logger.InfoResEx("Transfer succeeded",
+					applog.F("source", src),
+					applog.F("destination", destPath),
+					applog.F("bytes", result.BytesTransferred),
 				)
 			}
 

@@ -9,10 +9,11 @@ import (
 	"testing"
 	"time"
 
+	applog "github.com/preedep/go-nixcopy/internal/infrastructure/logger"
+
 	"github.com/preedep/go-nixcopy/internal/domain/entity"
 	"github.com/preedep/go-nixcopy/internal/domain/repository"
 	"github.com/preedep/go-nixcopy/internal/usecase/mocks"
-	"go.uber.org/zap"
 )
 
 // basicStorage wraps MockStorage but does not expose repository.Resumer,
@@ -46,7 +47,7 @@ func TestTransferUseCase_Transfer_Success(t *testing.T) {
 	// Setup
 	source := mocks.NewMockStorage()
 	dest := mocks.NewMockStorage()
-	logger := zap.NewNop()
+	logger := applog.NewNopLogger()
 
 	// Add test file to source
 	testContent := []byte("test file content")
@@ -109,7 +110,7 @@ func TestTransferUseCase_Transfer_SourceNotFound(t *testing.T) {
 	// Setup
 	source := mocks.NewMockStorage()
 	dest := mocks.NewMockStorage()
-	logger := zap.NewNop()
+	logger := applog.NewNopLogger()
 
 	config := &entity.TransferConfig{
 		BufferSize:      1024,
@@ -139,7 +140,7 @@ func TestTransferUseCase_TransferBatch_Success(t *testing.T) {
 	// Setup
 	source := mocks.NewMockStorage()
 	dest := mocks.NewMockStorage()
-	logger := zap.NewNop()
+	logger := applog.NewNopLogger()
 
 	// Add multiple test files
 	files := []string{"file1.txt", "file2.txt", "file3.txt"}
@@ -202,7 +203,7 @@ func TestTransferUseCase_TransferBatch_Success(t *testing.T) {
 func TestTransferUseCase_Transfer_ChecksumVerification_Success(t *testing.T) {
 	source := mocks.NewMockStorage()
 	dest := mocks.NewMockStorage()
-	logger := zap.NewNop()
+	logger := applog.NewNopLogger()
 
 	testContent := []byte("checksum test content")
 	source.AddFile("/source/file.txt", testContent, &entity.FileInfo{
@@ -241,7 +242,7 @@ func TestTransferUseCase_Transfer_ChecksumVerification_Mismatch(t *testing.T) {
 	source := mocks.NewMockStorage()
 	dest := mocks.NewMockStorage()
 	dest.CorruptWrite = true // destination flips first byte — checksum will differ
-	logger := zap.NewNop()
+	logger := applog.NewNopLogger()
 
 	testContent := []byte("checksum test content")
 	source.AddFile("/source/file.txt", testContent, &entity.FileInfo{
@@ -276,7 +277,7 @@ func TestTransferUseCase_Transfer_ChecksumVerification_Mismatch(t *testing.T) {
 func TestTransferUseCase_Transfer_Resume_WithPartialDest(t *testing.T) {
 	source := mocks.NewMockStorage()
 	dest := mocks.NewMockStorage()
-	logger := zap.NewNop()
+	logger := applog.NewNopLogger()
 
 	fullContent := []byte("Hello, World! This is a test file.")
 	partialContent := fullContent[:6] // dest already has "Hello,"
@@ -329,7 +330,7 @@ func TestTransferUseCase_Transfer_Resume_WithPartialDest(t *testing.T) {
 func TestTransferUseCase_Transfer_Resume_NoPartialDest(t *testing.T) {
 	source := mocks.NewMockStorage()
 	dest := mocks.NewMockStorage()
-	logger := zap.NewNop()
+	logger := applog.NewNopLogger()
 
 	fullContent := []byte("Hello, World!")
 	source.AddFile("/source/file.txt", fullContent, &entity.FileInfo{
@@ -369,7 +370,7 @@ func TestTransferUseCase_Transfer_Resume_NoPartialDest(t *testing.T) {
 func TestTransferUseCase_Transfer_DirectorySource(t *testing.T) {
 	source := mocks.NewMockStorage()
 	dest := mocks.NewMockStorage()
-	logger := zap.NewNop()
+	logger := applog.NewNopLogger()
 
 	source.AddFile("/source/mydir", nil, &entity.FileInfo{
 		Path:        "/source/mydir",
@@ -398,7 +399,7 @@ func TestTransferUseCase_Transfer_DirectorySource(t *testing.T) {
 func TestTransferUseCase_Transfer_AllRetriesExhausted(t *testing.T) {
 	source := mocks.NewMockStorage()
 	dest := mocks.NewMockStorage()
-	logger := zap.NewNop()
+	logger := applog.NewNopLogger()
 
 	source.AddFile("/source/file.txt", []byte("content"), &entity.FileInfo{
 		Path: "/source/file.txt",
@@ -428,7 +429,7 @@ func TestTransferUseCase_Transfer_AllRetriesExhausted(t *testing.T) {
 func TestTransferUseCase_Transfer_Resume_NonResumerBackend(t *testing.T) {
 	inner := mocks.NewMockStorage()
 	dest := mocks.NewMockStorage()
-	logger := zap.NewNop()
+	logger := applog.NewNopLogger()
 
 	fullContent := []byte("Hello, World!")
 	inner.AddFile("/source/file.txt", fullContent, &entity.FileInfo{
@@ -474,7 +475,7 @@ func TestTransferUseCase_TransferBatch_PartialFailure(t *testing.T) {
 	// Setup
 	source := mocks.NewMockStorage()
 	dest := mocks.NewMockStorage()
-	logger := zap.NewNop()
+	logger := applog.NewNopLogger()
 
 	// Add only 2 out of 3 files
 	source.AddFile("/source/file1.txt", []byte("content1"), &entity.FileInfo{

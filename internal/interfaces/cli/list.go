@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/preedep/go-nixcopy/internal/domain/repository"
@@ -47,16 +48,23 @@ func runList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	log, err := logger.NewLogger(&cfg.Logging)
-	if err != nil {
-		return fmt.Errorf("failed to create logger: %w", err)
+	appID := os.Getenv("NIXCOPY_APP_ID")
+	if appID == "" {
+		appID = "go-nixcopy"
 	}
-	defer func() { _ = log.Sync() }()
+	log := logger.NewStandardLogger(
+		logger.WithAppID(appID),
+		logger.WithAppVersion(os.Getenv("NIXCOPY_APP_VERSION")),
+		logger.WithPodName(os.Getenv("POD_NAME")),
+	)
 
 	ctx := context.Background()
 
+	log.InfoReqEx("Listing storage", logger.F("path", listPath))
+
 	var storageSystem repository.Storage
 	var storageType string
+	var err error
 
 	if listSource {
 		storageSystem, err = storage.NewStorageFromSourceConfig(&cfg.Source)

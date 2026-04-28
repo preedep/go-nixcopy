@@ -7,9 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	applog "github.com/preedep/go-nixcopy/internal/infrastructure/logger"
+
 	"github.com/preedep/go-nixcopy/internal/domain/entity"
 	"github.com/preedep/go-nixcopy/internal/domain/repository"
-	"go.uber.org/zap"
 )
 
 // PatternMatcher handles file pattern matching and expansion for wildcard-based file discovery.
@@ -34,8 +35,8 @@ import (
 // PatternMatcher is safe for concurrent use. Multiple goroutines can call
 // MatchFiles() simultaneously on the same instance.
 type PatternMatcher struct {
-	storage repository.StorageReader // Storage reader for listing and accessing files
-	logger  *zap.Logger              // Structured logger for debugging pattern matching
+	storage repository.StorageReader  // Storage reader for listing and accessing files
+	logger  *applog.StandardLogger    // Structured logger for debugging pattern matching
 }
 
 // NewPatternMatcher creates a new PatternMatcher instance.
@@ -50,7 +51,7 @@ type PatternMatcher struct {
 //
 //	matcher := NewPatternMatcher(storageReader, logger)
 //	files, err := matcher.MatchFiles(ctx, "logs/**/*.log")
-func NewPatternMatcher(storage repository.StorageReader, logger *zap.Logger) *PatternMatcher {
+func NewPatternMatcher(storage repository.StorageReader, logger *applog.StandardLogger) *PatternMatcher {
 	return &PatternMatcher{
 		storage: storage,
 		logger:  logger,
@@ -108,9 +109,9 @@ func (pm *PatternMatcher) MatchFiles(ctx context.Context, pattern string) ([]str
 	basePath := pm.getBasePath(pattern)
 
 	pm.logger.Info("Matching files",
-		zap.String("pattern", pattern),
-		zap.String("base_path", basePath),
-		zap.Bool("is_recursive", filePattern.IsRecursive),
+		applog.F("pattern", pattern),
+		applog.F("base_path", basePath),
+		applog.F("is_recursive", filePattern.IsRecursive),
 	)
 
 	files, err := pm.listFilesRecursive(ctx, basePath, filePattern)
@@ -119,8 +120,8 @@ func (pm *PatternMatcher) MatchFiles(ctx context.Context, pattern string) ([]str
 	}
 
 	pm.logger.Info("Pattern matching completed",
-		zap.String("pattern", pattern),
-		zap.Int("matched_files", len(files)),
+		applog.F("pattern", pattern),
+		applog.F("matched_files", len(files)),
 	)
 
 	return files, nil
@@ -225,8 +226,8 @@ func (pm *PatternMatcher) listFilesRecursive(
 					// Log warning but continue processing other directories
 					// This handles permission errors gracefully
 					pm.logger.Warn("Failed to list subdirectory",
-						zap.String("path", file.Path),
-						zap.Error(err),
+						applog.F("path", file.Path),
+						applog.FError(err),
 					)
 					continue
 				}

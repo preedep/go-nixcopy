@@ -6,15 +6,16 @@ import (
 	"testing"
 	"time"
 
+	applog "github.com/preedep/go-nixcopy/internal/infrastructure/logger"
+
 	"github.com/preedep/go-nixcopy/internal/domain/entity"
 	"github.com/preedep/go-nixcopy/internal/usecase/mocks"
-	"go.uber.org/zap"
 )
 
 func TestPatternMatcher_MatchFiles_ExactMatch(t *testing.T) {
 	// Setup
 	storage := mocks.NewMockStorage()
-	logger := zap.NewNop()
+	logger := applog.NewNopLogger()
 
 	storage.AddFile("/data/file.txt", []byte("content"), &entity.FileInfo{
 		Path:         "/data/file.txt",
@@ -47,7 +48,7 @@ func TestPatternMatcher_MatchFiles_ExactMatch(t *testing.T) {
 func TestPatternMatcher_MatchFiles_Wildcard(t *testing.T) {
 	// Setup
 	storage := mocks.NewMockStorage()
-	logger := zap.NewNop()
+	logger := applog.NewNopLogger()
 
 	// Add multiple PDF files
 	pdfFiles := []string{"report1.pdf", "report2.pdf", "document.pdf"}
@@ -96,7 +97,7 @@ func TestPatternMatcher_MatchFiles_Wildcard(t *testing.T) {
 
 func TestPatternMatcher_GetBasePath(t *testing.T) {
 	storage := mocks.NewMockStorage()
-	logger := zap.NewNop()
+	logger := applog.NewNopLogger()
 	matcher := NewPatternMatcher(storage, logger)
 
 	tests := []struct {
@@ -138,7 +139,7 @@ func TestPatternMatcher_GetBasePath(t *testing.T) {
 
 func TestPatternMatcher_MatchesPattern(t *testing.T) {
 	storage := mocks.NewMockStorage()
-	logger := zap.NewNop()
+	logger := applog.NewNopLogger()
 	matcher := NewPatternMatcher(storage, logger)
 
 	tests := []struct {
@@ -186,7 +187,7 @@ func TestPatternMatcher_MatchesPattern(t *testing.T) {
 
 func TestPatternMatcher_MatchFiles_Recursive(t *testing.T) {
 	storage := mocks.NewMockStorage()
-	logger := zap.NewNop()
+	logger := applog.NewNopLogger()
 
 	// Simulate nested directory structure via ListFunc:
 	//   /logs/app.log
@@ -227,7 +228,7 @@ func TestPatternMatcher_MatchFiles_Recursive(t *testing.T) {
 
 func TestPatternMatcher_MatchFiles_ListError(t *testing.T) {
 	storage := mocks.NewMockStorage()
-	logger := zap.NewNop()
+	logger := applog.NewNopLogger()
 
 	storage.ListError = errors.New("storage unavailable")
 
@@ -241,7 +242,7 @@ func TestPatternMatcher_MatchFiles_ListError(t *testing.T) {
 
 func TestPatternMatcher_MatchFiles_NoMatches(t *testing.T) {
 	storage := mocks.NewMockStorage()
-	logger := zap.NewNop()
+	logger := applog.NewNopLogger()
 
 	storage.AddFile("/data/readme.txt", []byte("content"), &entity.FileInfo{
 		Path:        "/data/readme.txt",
