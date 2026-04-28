@@ -50,37 +50,6 @@ jobs:
     name: Integration Tests
     runs-on: ubuntu-latest
 
-    services:
-      # MinIO — S3-compatible object storage
-      minio:
-        image: minio/minio:latest
-        ports:
-          - 9000:9000
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-        options: >-
-          --health-cmd "curl -f http://localhost:9000/minio/health/live"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-        # minio needs a startup command; use entrypoint override via options is not supported,
-        # so we start it manually in the setup step below.
-
-      # atmoz/sftp — lightweight SFTP server
-      # Format: user:password:::upload  (creates /home/user/upload writable)
-      sftp:
-        image: atmoz/sftp:latest
-        ports:
-          - 2222:22
-        options: >-
-          --health-cmd "echo exit | nc -w 1 localhost 22"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-        env:
-          SFTP_USERS: testuser:testpass:::upload
-
     steps:
       - uses: actions/checkout@v4
 
@@ -99,10 +68,20 @@ jobs:
             -e MINIO_ROOT_USER=minioadmin \
             -e MINIO_ROOT_PASSWORD=minioadmin \
             minio/minio server /data
-          # Wait for MinIO to be ready
           for i in $(seq 1 20); do
             curl -sf http://localhost:9000/minio/health/live && break
             echo "Waiting for MinIO... ($i)"
+            sleep 2
+          done
+
+      - name: Start SFTP server
+        run: |
+          docker run -d --name sftp \
+            -p 2222:22 \
+            atmoz/sftp testuser:testpass:::upload
+          for i in $(seq 1 20); do
+            timeout 1 bash -c 'echo > /dev/tcp/localhost/2222' 2>/dev/null && break
+            echo "Waiting for SFTP... ($i)"
             sleep 2
           done
 
