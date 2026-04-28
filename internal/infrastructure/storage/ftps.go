@@ -52,7 +52,7 @@ func (f *FTPSStorage) Connect(ctx context.Context) error {
 	}
 
 	if err := conn.Login(f.config.Username, f.config.Password); err != nil {
-		conn.Quit()
+		_ = conn.Quit()
 		return fmt.Errorf("failed to login: %w", err)
 	}
 
@@ -140,8 +140,7 @@ func (f *FTPSStorage) Write(ctx context.Context, path string, reader io.Reader, 
 
 	dir := filepath.Dir(path)
 	if dir != "." && dir != "/" {
-		if err := f.ftpClient.MakeDir(dir); err != nil {
-		}
+		_ = f.ftpClient.MakeDir(dir)
 	}
 
 	if err := f.ftpClient.Stor(path, reader); err != nil {

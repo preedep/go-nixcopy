@@ -75,7 +75,9 @@ func init() {
 	transferCmd.Flags().StringVarP(&sourcePath, "source", "s", "", "Source file path or pattern (supports wildcards: *.pdf, **/*.txt)")
 	transferCmd.Flags().StringSliceVar(&sourcePaths, "sources", []string{}, "Multiple source file paths (comma-separated)")
 	transferCmd.Flags().StringVarP(&destPath, "dest", "d", "", "Destination path (required)")
-	transferCmd.MarkFlagRequired("dest")
+	if err := transferCmd.MarkFlagRequired("dest"); err != nil {
+		panic(err)
+	}
 
 	// Source storage flags
 	transferCmd.Flags().StringVar(&sourceType, "source-type", "", "Source storage type (sftp, ftps, blob, s3)")
@@ -145,7 +147,7 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create logger: %w", err)
 	}
-	defer log.Sync()
+	defer func() { _ = log.Sync() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -172,13 +174,13 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 	if err := sourceStorage.Connect(ctx); err != nil {
 		return fmt.Errorf("failed to connect to source: %w", err)
 	}
-	defer sourceStorage.Disconnect(ctx)
+	defer func() { _ = sourceStorage.Disconnect(ctx) }()
 
 	log.Info("Connecting to destination storage", zap.String("type", string(cfg.Destination.Type)))
 	if err := destStorage.Connect(ctx); err != nil {
 		return fmt.Errorf("failed to connect to destination: %w", err)
 	}
-	defer destStorage.Disconnect(ctx)
+	defer func() { _ = destStorage.Disconnect(ctx) }()
 
 	transferConfig := &entity.TransferConfig{
 		BufferSize:      cfg.Transfer.BufferSize,

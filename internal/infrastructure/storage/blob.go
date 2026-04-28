@@ -57,7 +57,7 @@ func (b *BlobStorage) Connect(ctx context.Context) error {
 		if b.config.SASToken == "" {
 			return fmt.Errorf("sas_token is required for sas_token auth type")
 		}
-		sasURL := serviceURL
+		var sasURL string
 		if !strings.Contains(b.config.SASToken, "?") {
 			sasURL = serviceURL + "?" + b.config.SASToken
 		} else {

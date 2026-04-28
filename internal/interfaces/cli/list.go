@@ -51,7 +51,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create logger: %w", err)
 	}
-	defer log.Sync()
+	defer func() { _ = log.Sync() }()
 
 	ctx := context.Background()
 
@@ -73,7 +73,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	if err := storageSystem.Connect(ctx); err != nil {
 		return fmt.Errorf("failed to connect to storage: %w", err)
 	}
-	defer storageSystem.Disconnect(ctx)
+	defer func() { _ = storageSystem.Disconnect(ctx) }()
 
 	files, err := storageSystem.List(ctx, listPath)
 	if err != nil {
