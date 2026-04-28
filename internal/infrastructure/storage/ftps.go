@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jlaffaye/ftp"
@@ -133,6 +134,22 @@ func (f *FTPSStorage) Stat(ctx context.Context, path string) (*entity.FileInfo, 
 	}, nil
 }
 
+// ftpMkdirAll creates path and every intermediate parent directory on an FTP
+// server by calling makeDir once per path component. Errors from individual
+// MakeDir calls are intentionally ignored: intermediate directories often
+// already exist and FTP servers return an error in that case. Any real failure
+// (e.g. permission denied) will surface as an error from the subsequent Stor call.
+func ftpMkdirAll(path string, makeDir func(string) error) {
+	cur := ""
+	for _, part := range strings.Split(filepath.ToSlash(path), "/") {
+		if part == "" {
+			continue
+		}
+		cur += "/" + part
+		_ = makeDir(cur)
+	}
+}
+
 func (f *FTPSStorage) Write(ctx context.Context, path string, reader io.Reader, size int64) error {
 	if f.ftpClient == nil {
 		return fmt.Errorf("FTP client not connected")
@@ -140,7 +157,7 @@ func (f *FTPSStorage) Write(ctx context.Context, path string, reader io.Reader, 
 
 	dir := filepath.Dir(path)
 	if dir != "." && dir != "/" {
-		_ = f.ftpClient.MakeDir(dir)
+		ftpMkdirAll(dir, f.ftpClient.MakeDir)
 	}
 
 	if err := f.ftpClient.Stor(path, reader); err != nil {
@@ -155,7 +172,8 @@ func (f *FTPSStorage) CreateDirectory(ctx context.Context, path string) error {
 		return fmt.Errorf("FTP client not connected")
 	}
 
-	return f.ftpClient.MakeDir(path)
+	ftpMkdirAll(path, f.ftpClient.MakeDir)
+	return nil
 }
 
 func (f *FTPSStorage) Delete(ctx context.Context, path string) error {
