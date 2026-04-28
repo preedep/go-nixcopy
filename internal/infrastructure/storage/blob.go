@@ -78,9 +78,11 @@ func (b *BlobStorage) Connect(ctx context.Context) error {
 		}
 
 	case config.BlobAuthManagedIdentity:
-		cred, err := azidentity.NewManagedIdentityCredential(&azidentity.ManagedIdentityCredentialOptions{
-			ID: azidentity.ClientID(b.config.ClientID),
-		})
+		miOpts := &azidentity.ManagedIdentityCredentialOptions{}
+		if b.config.ClientID != "" {
+			miOpts.ID = azidentity.ClientID(b.config.ClientID)
+		}
+		cred, err := azidentity.NewManagedIdentityCredential(miOpts)
 		if err != nil {
 			return fmt.Errorf("failed to create managed identity credentials: %w", err)
 		}

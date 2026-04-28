@@ -10,7 +10,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/preedep/go-nixcopy/internal/domain/entity"
 	"github.com/preedep/go-nixcopy/internal/domain/repository"
 	appconfig "github.com/preedep/go-nixcopy/internal/infrastructure/config"
@@ -62,15 +64,34 @@ func (s *S3Storage) Connect(ctx context.Context) error {
 		}
 		awsCfg, err = config.LoadDefaultConfig(ctx, configOptions...)
 		if err != nil {
-			return fmt.Errorf("failed to load AWS config: %w", err)
+			return fmt.Errorf("failed to load AWS base config for assume_role: %w", err)
 		}
+		stsClient := sts.NewFromConfig(awsCfg)
+		provider := stscreds.NewAssumeRoleProvider(stsClient, s.config.RoleARN, func(o *stscreds.AssumeRoleOptions) {
+			if s.config.RoleSessionName != "" {
+				o.RoleSessionName = s.config.RoleSessionName
+			}
+			if s.config.ExternalID != "" {
+				o.ExternalID = aws.String(s.config.ExternalID)
+			}
+		})
+		awsCfg.Credentials = aws.NewCredentialsCache(provider)
 
 	case appconfig.S3AuthWebIdentity:
 		if s.config.RoleARN == "" || s.config.WebIdentityTokenFile == "" {
 			return fmt.Errorf("role_arn and web_identity_token_file are required for web_identity auth type")
 		}
-		// Web identity token will be automatically picked up from environment or token file
 		awsCfg, err = config.LoadDefaultConfig(ctx, configOptions...)
+		if err != nil {
+			return fmt.Errorf("failed to load AWS base config for web_identity: %w", err)
+		}
+		stsClient := sts.NewFromConfig(awsCfg)
+		wiProvider := stscreds.NewWebIdentityRoleProvider(
+			stsClient,
+			s.config.RoleARN,
+			stscreds.IdentityTokenFile(s.config.WebIdentityTokenFile),
+		)
+		awsCfg.Credentials = aws.NewCredentialsCache(wiProvider)
 
 	default:
 		awsCfg, err = config.LoadDefaultConfig(ctx, configOptions...)
