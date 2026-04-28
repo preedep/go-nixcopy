@@ -119,3 +119,117 @@ func TestLocalStorage_CreateDirectory(t *testing.T) {
 		t.Error("expected IsDirectory = true")
 	}
 }
+
+func TestLocalStorage_ReadFrom(t *testing.T) {
+	ctx := context.Background()
+	s := newLocalStore(t)
+
+	resumer, ok := s.(repository.Resumer)
+	if !ok {
+		t.Skip("LocalStorage does not implement Resumer")
+	}
+
+	content := []byte("Hello, World!")
+	if err := s.Write(ctx, "readfrom.txt", bytes.NewReader(content), int64(len(content))); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	offset := int64(7)
+	rc, size, err := resumer.ReadFrom(ctx, "readfrom.txt", offset)
+	if err != nil {
+		t.Fatalf("ReadFrom: %v", err)
+	}
+	defer rc.Close()
+
+	want := content[offset:]
+	if size != int64(len(want)) {
+		t.Errorf("size = %d, want %d", size, len(want))
+	}
+	got, _ := io.ReadAll(rc)
+	if !bytes.Equal(got, want) {
+		t.Errorf("ReadFrom content = %q, want %q", got, want)
+	}
+}
+
+func TestLocalStorage_AppendWrite(t *testing.T) {
+	ctx := context.Background()
+	s := newLocalStore(t)
+
+	resumer, ok := s.(repository.Resumer)
+	if !ok {
+		t.Skip("LocalStorage does not implement Resumer")
+	}
+
+	fullContent := []byte("Hello, World!")
+	partial := fullContent[:7]
+	tail := fullContent[7:]
+
+	if err := s.Write(ctx, "append.txt", bytes.NewReader(partial), int64(len(partial))); err != nil {
+		t.Fatalf("Write partial: %v", err)
+	}
+
+	if err := resumer.AppendWrite(ctx, "append.txt", bytes.NewReader(tail), int64(len(tail)), int64(len(partial))); err != nil {
+		t.Fatalf("AppendWrite: %v", err)
+	}
+
+	rc, size, err := s.Read(ctx, "append.txt")
+	if err != nil {
+		t.Fatalf("Read after AppendWrite: %v", err)
+	}
+	defer rc.Close()
+
+	if size != int64(len(fullContent)) {
+		t.Errorf("size = %d, want %d", size, len(fullContent))
+	}
+	got, _ := io.ReadAll(rc)
+	if !bytes.Equal(got, fullContent) {
+		t.Errorf("AppendWrite result = %q, want %q", got, fullContent)
+	}
+}
+
+func TestLocalStorage_Resume_ReadFromThenAppend(t *testing.T) {
+	ctx := context.Background()
+	src := newLocalStore(t)
+	dst := newLocalStore(t)
+
+	srcResumer, ok := src.(repository.Resumer)
+	if !ok {
+		t.Skip("LocalStorage does not implement Resumer")
+	}
+	dstResumer, _ := dst.(repository.Resumer)
+
+	fullContent := []byte("The quick brown fox jumps over the lazy dog.")
+	partial := fullContent[:10]
+
+	if err := src.Write(ctx, "source.txt", bytes.NewReader(fullContent), int64(len(fullContent))); err != nil {
+		t.Fatalf("Write source: %v", err)
+	}
+	if err := dst.Write(ctx, "dest.txt", bytes.NewReader(partial), int64(len(partial))); err != nil {
+		t.Fatalf("Write partial dest: %v", err)
+	}
+
+	offset := int64(len(partial))
+	rc, remaining, err := srcResumer.ReadFrom(ctx, "source.txt", offset)
+	if err != nil {
+		t.Fatalf("ReadFrom: %v", err)
+	}
+	defer rc.Close()
+
+	if err := dstResumer.AppendWrite(ctx, "dest.txt", rc, remaining, offset); err != nil {
+		t.Fatalf("AppendWrite: %v", err)
+	}
+
+	rcFull, size, err := dst.Read(ctx, "dest.txt")
+	if err != nil {
+		t.Fatalf("Read final: %v", err)
+	}
+	defer rcFull.Close()
+
+	if size != int64(len(fullContent)) {
+		t.Errorf("final size = %d, want %d", size, len(fullContent))
+	}
+	got, _ := io.ReadAll(rcFull)
+	if !bytes.Equal(got, fullContent) {
+		t.Errorf("final content = %q, want %q", got, fullContent)
+	}
+}

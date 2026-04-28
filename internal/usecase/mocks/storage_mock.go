@@ -38,6 +38,10 @@ type MockStorage struct {
 	// CorruptWrite, when true, flips the first byte of every written file to
 	// simulate storage corruption for checksum-verification tests.
 	CorruptWrite bool
+
+	// ListFunc, when set, overrides the default List implementation.
+	// Use this in tests that need path-aware or recursive-structure list behavior.
+	ListFunc func(ctx context.Context, path string) ([]entity.FileInfo, error)
 }
 
 func NewMockStorage() *MockStorage {
@@ -68,6 +72,10 @@ func (m *MockStorage) List(ctx context.Context, path string) ([]entity.FileInfo,
 
 	if m.ListError != nil {
 		return nil, m.ListError
+	}
+
+	if m.ListFunc != nil {
+		return m.ListFunc(ctx, path)
 	}
 
 	var files []entity.FileInfo

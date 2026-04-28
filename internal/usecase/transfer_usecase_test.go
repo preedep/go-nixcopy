@@ -4,13 +4,43 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"io"
 	"testing"
 	"time"
 
 	"github.com/preedep/go-nixcopy/internal/domain/entity"
+	"github.com/preedep/go-nixcopy/internal/domain/repository"
 	"github.com/preedep/go-nixcopy/internal/usecase/mocks"
 	"go.uber.org/zap"
 )
+
+// basicStorage wraps MockStorage but does not expose repository.Resumer,
+// letting us test the fall-back path when EnableResume is true but the
+// backend does not support resume.
+type basicStorage struct{ m *mocks.MockStorage }
+
+func (b *basicStorage) Connect(ctx context.Context) error    { return b.m.Connect(ctx) }
+func (b *basicStorage) Disconnect(ctx context.Context) error { return b.m.Disconnect(ctx) }
+func (b *basicStorage) List(ctx context.Context, path string) ([]entity.FileInfo, error) {
+	return b.m.List(ctx, path)
+}
+func (b *basicStorage) Read(ctx context.Context, path string) (io.ReadCloser, int64, error) {
+	return b.m.Read(ctx, path)
+}
+func (b *basicStorage) Stat(ctx context.Context, path string) (*entity.FileInfo, error) {
+	return b.m.Stat(ctx, path)
+}
+func (b *basicStorage) Write(ctx context.Context, path string, r io.Reader, size int64) error {
+	return b.m.Write(ctx, path, r, size)
+}
+func (b *basicStorage) CreateDirectory(ctx context.Context, path string) error {
+	return b.m.CreateDirectory(ctx, path)
+}
+func (b *basicStorage) Delete(ctx context.Context, path string) error { return b.m.Delete(ctx, path) }
+
+// Verify basicStorage satisfies Storage but not Resumer.
+var _ repository.Storage = (*basicStorage)(nil)
 
 func TestTransferUseCase_Transfer_Success(t *testing.T) {
 	// Setup
@@ -335,6 +365,110 @@ func TestTransferUseCase_Transfer_Resume_NoPartialDest(t *testing.T) {
 		t.Errorf("dest content = %q, want %q", got, string(fullContent))
 	}
 }
+
+func TestTransferUseCase_Transfer_DirectorySource(t *testing.T) {
+	source := mocks.NewMockStorage()
+	dest := mocks.NewMockStorage()
+	logger := zap.NewNop()
+
+	source.AddFile("/source/mydir", nil, &entity.FileInfo{
+		Path:        "/source/mydir",
+		Name:        "mydir",
+		IsDirectory: true,
+	})
+
+	config := &entity.TransferConfig{
+		BufferSize:      1024,
+		ConcurrentFiles: 1,
+		RetryAttempts:   0,
+		RetryDelay:      time.Millisecond,
+	}
+
+	useCase := NewTransferUseCase(source, dest, config, logger)
+	result, err := useCase.Transfer(context.Background(), "/source/mydir", "/dest/mydir", nil)
+
+	if err == nil {
+		t.Fatal("Transfer() expected error for directory source, got nil")
+	}
+	if result != nil {
+		t.Errorf("expected nil result for directory error, got %+v", result)
+	}
+}
+
+func TestTransferUseCase_Transfer_AllRetriesExhausted(t *testing.T) {
+	source := mocks.NewMockStorage()
+	dest := mocks.NewMockStorage()
+	logger := zap.NewNop()
+
+	source.AddFile("/source/file.txt", []byte("content"), &entity.FileInfo{
+		Path: "/source/file.txt",
+		Name: "file.txt",
+		Size: 7,
+	})
+	source.ReadError = errors.New("simulated read error")
+
+	config := &entity.TransferConfig{
+		BufferSize:      1024,
+		ConcurrentFiles: 1,
+		RetryAttempts:   2,
+		RetryDelay:      time.Millisecond,
+	}
+
+	useCase := NewTransferUseCase(source, dest, config, logger)
+	result, err := useCase.Transfer(context.Background(), "/source/file.txt", "/dest/file.txt", nil)
+
+	if err == nil {
+		t.Fatal("Transfer() expected error after retries exhausted, got nil")
+	}
+	if result.Status != entity.TransferStatusFailed {
+		t.Errorf("Status = %v, want failed", result.Status)
+	}
+}
+
+func TestTransferUseCase_Transfer_Resume_NonResumerBackend(t *testing.T) {
+	inner := mocks.NewMockStorage()
+	dest := mocks.NewMockStorage()
+	logger := zap.NewNop()
+
+	fullContent := []byte("Hello, World!")
+	inner.AddFile("/source/file.txt", fullContent, &entity.FileInfo{
+		Path: "/source/file.txt",
+		Name: "file.txt",
+		Size: int64(len(fullContent)),
+	})
+
+	// basicStorage wraps inner but does NOT implement repository.Resumer
+	source := &basicStorage{m: inner}
+
+	config := &entity.TransferConfig{
+		BufferSize:      1024,
+		ConcurrentFiles: 1,
+		RetryAttempts:   0,
+		RetryDelay:      time.Millisecond,
+		EnableResume:    true,
+	}
+
+	useCase := NewTransferUseCase(source, dest, config, logger)
+	result, err := useCase.Transfer(context.Background(), "/source/file.txt", "/dest/file.txt", nil)
+
+	if err != nil {
+		t.Fatalf("Transfer() error = %v", err)
+	}
+	if result.Status != entity.TransferStatusCompleted {
+		t.Errorf("Status = %v, want completed", result.Status)
+	}
+	if result.ResumedFrom != 0 {
+		t.Errorf("ResumedFrom = %d, want 0 (full transfer fallback)", result.ResumedFrom)
+	}
+	got := string(dest.FileContent["/dest/file.txt"])
+	if got != string(fullContent) {
+		t.Errorf("dest content = %q, want %q", got, string(fullContent))
+	}
+}
+
+// Compile-time check: basicStorage must NOT satisfy repository.Resumer.
+// If this ever compiles with the assertion below, something has changed.
+var _ = func() { var _ repository.Storage = (*basicStorage)(nil) }
 
 func TestTransferUseCase_TransferBatch_PartialFailure(t *testing.T) {
 	// Setup

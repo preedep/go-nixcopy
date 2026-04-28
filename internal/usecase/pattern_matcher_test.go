@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -180,5 +181,88 @@ func TestPatternMatcher_MatchesPattern(t *testing.T) {
 				t.Errorf("matchesPattern() = %v, want %v for path %q and pattern %q", got, tt.want, tt.path, tt.pattern)
 			}
 		})
+	}
+}
+
+func TestPatternMatcher_MatchFiles_Recursive(t *testing.T) {
+	storage := mocks.NewMockStorage()
+	logger := zap.NewNop()
+
+	// Simulate nested directory structure via ListFunc:
+	//   /logs/app.log
+	//   /logs/errors/2024-01.log
+	//   /logs/errors/2024-02.log
+	//   /logs/archive/2023.log
+	storage.ListFunc = func(ctx context.Context, path string) ([]entity.FileInfo, error) {
+		switch path {
+		case "/logs":
+			return []entity.FileInfo{
+				{Path: "/logs/app.log", Name: "app.log", IsDirectory: false},
+				{Path: "/logs/errors", Name: "errors", IsDirectory: true},
+				{Path: "/logs/archive", Name: "archive", IsDirectory: true},
+			}, nil
+		case "/logs/errors":
+			return []entity.FileInfo{
+				{Path: "/logs/errors/2024-01.log", Name: "2024-01.log", IsDirectory: false},
+				{Path: "/logs/errors/2024-02.log", Name: "2024-02.log", IsDirectory: false},
+			}, nil
+		case "/logs/archive":
+			return []entity.FileInfo{
+				{Path: "/logs/archive/2023.log", Name: "2023.log", IsDirectory: false},
+			}, nil
+		default:
+			return nil, nil
+		}
+	}
+
+	matcher := NewPatternMatcher(storage, logger)
+	files, err := matcher.MatchFiles(context.Background(), "/logs/**/*.log")
+	if err != nil {
+		t.Fatalf("MatchFiles() error = %v", err)
+	}
+	if len(files) != 4 {
+		t.Errorf("matched %d files, want 4: %v", len(files), files)
+	}
+}
+
+func TestPatternMatcher_MatchFiles_ListError(t *testing.T) {
+	storage := mocks.NewMockStorage()
+	logger := zap.NewNop()
+
+	storage.ListError = errors.New("storage unavailable")
+
+	matcher := NewPatternMatcher(storage, logger)
+	_, err := matcher.MatchFiles(context.Background(), "/data/*.pdf")
+
+	if err == nil {
+		t.Fatal("MatchFiles() expected error when List fails, got nil")
+	}
+}
+
+func TestPatternMatcher_MatchFiles_NoMatches(t *testing.T) {
+	storage := mocks.NewMockStorage()
+	logger := zap.NewNop()
+
+	storage.AddFile("/data/readme.txt", []byte("content"), &entity.FileInfo{
+		Path:        "/data/readme.txt",
+		Name:        "readme.txt",
+		ModifiedTime: time.Now(),
+		IsDirectory: false,
+	})
+	storage.AddFile("/data/notes.md", []byte("notes"), &entity.FileInfo{
+		Path:        "/data/notes.md",
+		Name:        "notes.md",
+		ModifiedTime: time.Now(),
+		IsDirectory: false,
+	})
+
+	matcher := NewPatternMatcher(storage, logger)
+	files, err := matcher.MatchFiles(context.Background(), "/data/*.pdf")
+
+	if err != nil {
+		t.Fatalf("MatchFiles() error = %v", err)
+	}
+	if len(files) != 0 {
+		t.Errorf("expected 0 matches, got %d: %v", len(files), files)
 	}
 }
