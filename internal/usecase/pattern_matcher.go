@@ -313,10 +313,13 @@ func (pm *PatternMatcher) matchesPattern(path string, pattern *entity.FilePatter
 	}
 
 	// Handle simple wildcard patterns (*, ?, [])
-	// Match against filename only, not full path
-	matched, err := filepath.Match(pattern.Pattern, filepath.Base(path))
+	// Match against full path when pattern contains a separator, basename otherwise
+	matchTarget := filepath.Base(path)
+	if strings.Contains(pattern.Pattern, "/") {
+		matchTarget = path
+	}
+	matched, err := filepath.Match(pattern.Pattern, matchTarget)
 	if err != nil {
-		// Invalid pattern, return false
 		return false
 	}
 
