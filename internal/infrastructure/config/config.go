@@ -128,6 +128,7 @@ type TransferConfig struct {
 	RetryDelay      time.Duration `yaml:"retry_delay" json:"retry_delay"`
 	Timeout         time.Duration `yaml:"timeout" json:"timeout"`
 	VerifyChecksum  bool          `yaml:"verify_checksum" json:"verify_checksum"`
+	EnableResume    bool          `yaml:"enable_resume" json:"enable_resume"`
 }
 
 type LoggingConfig struct {

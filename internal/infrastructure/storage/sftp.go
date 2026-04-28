@@ -173,6 +173,56 @@ func (s *SFTPStorage) Write(ctx context.Context, path string, reader io.Reader, 
 	return nil
 }
 
+// ReadFrom opens a remote file for reading starting at offset bytes,
+// implementing repository.Resumer.
+func (s *SFTPStorage) ReadFrom(ctx context.Context, path string, offset int64) (io.ReadCloser, int64, error) {
+	if s.sftpClient == nil {
+		return nil, 0, fmt.Errorf("SFTP client not connected")
+	}
+
+	file, err := s.sftpClient.Open(path)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to open file: %w", err)
+	}
+
+	stat, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, 0, fmt.Errorf("failed to stat file: %w", err)
+	}
+
+	if _, err := file.Seek(offset, io.SeekStart); err != nil {
+		_ = file.Close()
+		return nil, 0, fmt.Errorf("failed to seek to offset %d: %w", offset, err)
+	}
+
+	return file, stat.Size() - offset, nil
+}
+
+// AppendWrite writes reader content into an existing remote file starting at
+// offset, implementing repository.Resumer.
+func (s *SFTPStorage) AppendWrite(ctx context.Context, path string, reader io.Reader, size, offset int64) error {
+	if s.sftpClient == nil {
+		return fmt.Errorf("SFTP client not connected")
+	}
+
+	file, err := s.sftpClient.OpenFile(path, os.O_WRONLY)
+	if err != nil {
+		return fmt.Errorf("failed to open file for resume: %w", err)
+	}
+	defer func() { _ = file.Close() }()
+
+	if _, err := file.Seek(offset, io.SeekStart); err != nil {
+		return fmt.Errorf("failed to seek to offset %d: %w", offset, err)
+	}
+
+	if _, err := io.Copy(file, reader); err != nil {
+		return fmt.Errorf("failed to write resumed content: %w", err)
+	}
+
+	return nil
+}
+
 func (s *SFTPStorage) CreateDirectory(ctx context.Context, path string) error {
 	if s.sftpClient == nil {
 		return fmt.Errorf("SFTP client not connected")

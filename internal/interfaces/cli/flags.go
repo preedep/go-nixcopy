@@ -210,6 +210,9 @@ func applyCliFlags(cfg *config.Config) error {
 	if retryAttempts > 0 {
 		cfg.Transfer.RetryAttempts = retryAttempts
 	}
+	if enableResume {
+		cfg.Transfer.EnableResume = true
+	}
 
 	// Set defaults if not set
 	if cfg.Transfer.BufferSize == 0 {

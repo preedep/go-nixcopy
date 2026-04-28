@@ -59,6 +59,7 @@ var (
 	bufferSize      int
 	concurrentFiles int
 	retryAttempts   int
+	enableResume    bool
 )
 
 var transferCmd = &cobra.Command{
@@ -115,6 +116,7 @@ func init() {
 	transferCmd.Flags().IntVar(&bufferSize, "buffer-size", 0, "Buffer size in bytes (default: 32MB)")
 	transferCmd.Flags().IntVar(&concurrentFiles, "concurrent-files", 0, "Number of concurrent file transfers")
 	transferCmd.Flags().IntVar(&retryAttempts, "retry-attempts", 0, "Number of retry attempts")
+	transferCmd.Flags().BoolVar(&enableResume, "resume", false, "Resume interrupted transfer if destination has a partial file (local and SFTP only)")
 }
 
 func runTransfer(cmd *cobra.Command, args []string) error {
@@ -189,6 +191,7 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 		RetryDelay:      cfg.Transfer.RetryDelay,
 		Timeout:         cfg.Transfer.Timeout,
 		VerifyChecksum:  cfg.Transfer.VerifyChecksum,
+		EnableResume:    cfg.Transfer.EnableResume,
 	}
 
 	transferUseCase := usecase.NewTransferUseCase(sourceStorage, destStorage, transferConfig, log)

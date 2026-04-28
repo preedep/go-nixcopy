@@ -57,6 +57,7 @@ type TransferConfig struct {
 	RetryDelay      time.Duration
 	Timeout         time.Duration
 	VerifyChecksum  bool
+	EnableResume    bool
 }
 
 type TransferResult struct {
@@ -67,6 +68,7 @@ type TransferResult struct {
 	Status           TransferStatus
 	Error            error
 	Checksum         string // SHA256 hex of transferred content; set when VerifyChecksum is true
+	ResumedFrom      int64  // byte offset the transfer resumed from; 0 if started from the beginning
 }
 
 type StreamReader interface {

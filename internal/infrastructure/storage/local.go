@@ -349,6 +349,51 @@ func (l *LocalStorage) CreateDirectory(ctx context.Context, path string) error {
 	return nil
 }
 
+// ReadFrom opens a file for reading starting at offset bytes in, implementing
+// repository.Resumer. The returned int64 is the remaining bytes (total - offset).
+func (l *LocalStorage) ReadFrom(ctx context.Context, path string, offset int64) (io.ReadCloser, int64, error) {
+	fullPath := l.getFullPath(path)
+
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to stat file: %w", err)
+	}
+
+	file, err := os.Open(fullPath)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to open file: %w", err)
+	}
+
+	if _, err := file.Seek(offset, io.SeekStart); err != nil {
+		_ = file.Close()
+		return nil, 0, fmt.Errorf("failed to seek to offset %d: %w", offset, err)
+	}
+
+	return file, info.Size() - offset, nil
+}
+
+// AppendWrite writes reader content into an existing file starting at offset,
+// implementing repository.Resumer.
+func (l *LocalStorage) AppendWrite(ctx context.Context, path string, reader io.Reader, size, offset int64) error {
+	fullPath := l.getFullPath(path)
+
+	file, err := os.OpenFile(fullPath, os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open file for resume: %w", err)
+	}
+	defer func() { _ = file.Close() }()
+
+	if _, err := file.Seek(offset, io.SeekStart); err != nil {
+		return fmt.Errorf("failed to seek to offset %d: %w", offset, err)
+	}
+
+	if _, err := io.Copy(file, reader); err != nil {
+		return fmt.Errorf("failed to write resumed content: %w", err)
+	}
+
+	return nil
+}
+
 // getFullPath constructs the absolute file system path from a relative path.
 //
 // This method ensures all operations are confined to the base directory

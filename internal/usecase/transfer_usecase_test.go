@@ -243,6 +243,99 @@ func TestTransferUseCase_Transfer_ChecksumVerification_Mismatch(t *testing.T) {
 	}
 }
 
+func TestTransferUseCase_Transfer_Resume_WithPartialDest(t *testing.T) {
+	source := mocks.NewMockStorage()
+	dest := mocks.NewMockStorage()
+	logger := zap.NewNop()
+
+	fullContent := []byte("Hello, World! This is a test file.")
+	partialContent := fullContent[:6] // dest already has "Hello,"
+
+	source.AddFile("/source/file.txt", fullContent, &entity.FileInfo{
+		Path:        "/source/file.txt",
+		Name:        "file.txt",
+		Size:        int64(len(fullContent)),
+		ModifiedTime: time.Now(),
+	})
+
+	// Pre-seed destination with partial content
+	dest.AddFile("/dest/file.txt", partialContent, &entity.FileInfo{
+		Path:        "/dest/file.txt",
+		Name:        "file.txt",
+		Size:        int64(len(partialContent)),
+		ModifiedTime: time.Now(),
+	})
+
+	config := &entity.TransferConfig{
+		BufferSize:      1024,
+		ConcurrentFiles: 1,
+		RetryAttempts:   0,
+		RetryDelay:      time.Millisecond,
+		EnableResume:    true,
+	}
+
+	useCase := NewTransferUseCase(source, dest, config, logger)
+	result, err := useCase.Transfer(context.Background(), "/source/file.txt", "/dest/file.txt", nil)
+
+	if err != nil {
+		t.Fatalf("Transfer() error = %v", err)
+	}
+	if result.Status != entity.TransferStatusCompleted {
+		t.Errorf("Status = %v, want completed", result.Status)
+	}
+	if result.ResumedFrom != int64(len(partialContent)) {
+		t.Errorf("ResumedFrom = %d, want %d", result.ResumedFrom, len(partialContent))
+	}
+	if result.BytesTransferred != int64(len(fullContent)) {
+		t.Errorf("BytesTransferred = %d, want %d", result.BytesTransferred, len(fullContent))
+	}
+
+	got := string(dest.FileContent["/dest/file.txt"])
+	if got != string(fullContent) {
+		t.Errorf("dest content = %q, want %q", got, string(fullContent))
+	}
+}
+
+func TestTransferUseCase_Transfer_Resume_NoPartialDest(t *testing.T) {
+	source := mocks.NewMockStorage()
+	dest := mocks.NewMockStorage()
+	logger := zap.NewNop()
+
+	fullContent := []byte("Hello, World!")
+	source.AddFile("/source/file.txt", fullContent, &entity.FileInfo{
+		Path:        "/source/file.txt",
+		Name:        "file.txt",
+		Size:        int64(len(fullContent)),
+		ModifiedTime: time.Now(),
+	})
+
+	config := &entity.TransferConfig{
+		BufferSize:      1024,
+		ConcurrentFiles: 1,
+		RetryAttempts:   0,
+		RetryDelay:      time.Millisecond,
+		EnableResume:    true,
+	}
+
+	useCase := NewTransferUseCase(source, dest, config, logger)
+	result, err := useCase.Transfer(context.Background(), "/source/file.txt", "/dest/file.txt", nil)
+
+	if err != nil {
+		t.Fatalf("Transfer() error = %v", err)
+	}
+	if result.Status != entity.TransferStatusCompleted {
+		t.Errorf("Status = %v, want completed", result.Status)
+	}
+	if result.ResumedFrom != 0 {
+		t.Errorf("ResumedFrom = %d, want 0 (full transfer)", result.ResumedFrom)
+	}
+
+	got := string(dest.FileContent["/dest/file.txt"])
+	if got != string(fullContent) {
+		t.Errorf("dest content = %q, want %q", got, string(fullContent))
+	}
+}
+
 func TestTransferUseCase_TransferBatch_PartialFailure(t *testing.T) {
 	// Setup
 	source := mocks.NewMockStorage()
