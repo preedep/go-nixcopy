@@ -66,6 +66,7 @@ type TransferResult struct {
 	Duration         time.Duration
 	Status           TransferStatus
 	Error            error
+	Checksum         string // SHA256 hex of transferred content; set when VerifyChecksum is true
 }
 
 type StreamReader interface {

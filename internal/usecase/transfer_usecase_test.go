@@ -2,6 +2,8 @@ package usecase
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"testing"
 	"time"
 
@@ -164,6 +166,80 @@ func TestTransferUseCase_TransferBatch_Success(t *testing.T) {
 		if _, ok := dest.FileContent[destPath]; !ok {
 			t.Errorf("File %s was not written to destination", filename)
 		}
+	}
+}
+
+func TestTransferUseCase_Transfer_ChecksumVerification_Success(t *testing.T) {
+	source := mocks.NewMockStorage()
+	dest := mocks.NewMockStorage()
+	logger := zap.NewNop()
+
+	testContent := []byte("checksum test content")
+	source.AddFile("/source/file.txt", testContent, &entity.FileInfo{
+		Path:        "/source/file.txt",
+		Name:        "file.txt",
+		Size:        int64(len(testContent)),
+		ModifiedTime: time.Now(),
+	})
+
+	config := &entity.TransferConfig{
+		BufferSize:      1024,
+		ConcurrentFiles: 1,
+		RetryAttempts:   0,
+		RetryDelay:      time.Millisecond,
+		VerifyChecksum:  true,
+	}
+
+	useCase := NewTransferUseCase(source, dest, config, logger)
+	result, err := useCase.Transfer(context.Background(), "/source/file.txt", "/dest/file.txt", nil)
+
+	if err != nil {
+		t.Fatalf("Transfer() error = %v", err)
+	}
+	if result.Status != entity.TransferStatusCompleted {
+		t.Errorf("Status = %v, want completed", result.Status)
+	}
+
+	h := sha256.Sum256(testContent)
+	want := hex.EncodeToString(h[:])
+	if result.Checksum != want {
+		t.Errorf("Checksum = %q, want %q", result.Checksum, want)
+	}
+}
+
+func TestTransferUseCase_Transfer_ChecksumVerification_Mismatch(t *testing.T) {
+	source := mocks.NewMockStorage()
+	dest := mocks.NewMockStorage()
+	dest.CorruptWrite = true // destination flips first byte — checksum will differ
+	logger := zap.NewNop()
+
+	testContent := []byte("checksum test content")
+	source.AddFile("/source/file.txt", testContent, &entity.FileInfo{
+		Path:        "/source/file.txt",
+		Name:        "file.txt",
+		Size:        int64(len(testContent)),
+		ModifiedTime: time.Now(),
+	})
+
+	config := &entity.TransferConfig{
+		BufferSize:      1024,
+		ConcurrentFiles: 1,
+		RetryAttempts:   0, // no retries so test finishes quickly
+		RetryDelay:      time.Millisecond,
+		VerifyChecksum:  true,
+	}
+
+	useCase := NewTransferUseCase(source, dest, config, logger)
+	result, err := useCase.Transfer(context.Background(), "/source/file.txt", "/dest/file.txt", nil)
+
+	if err == nil {
+		t.Fatal("Transfer() expected checksum mismatch error, got nil")
+	}
+	if result.Status != entity.TransferStatusFailed {
+		t.Errorf("Status = %v, want failed", result.Status)
+	}
+	if result.Checksum != "" {
+		t.Errorf("Checksum should be empty on mismatch, got %q", result.Checksum)
 	}
 }
 

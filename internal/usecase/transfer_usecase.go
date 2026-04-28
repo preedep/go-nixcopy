@@ -5,6 +5,8 @@ package usecase
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -34,7 +36,7 @@ import (
 // Transfer() or TransferBatch() simultaneously on the same instance.
 type TransferUseCase struct {
 	source repository.StorageReader // Source storage for reading files
-	dest   repository.StorageWriter // Destination storage for writing files
+	dest   repository.Storage       // Destination storage (read back needed for checksum verification)
 	config *entity.TransferConfig   // Transfer configuration (buffer size, retries, etc.)
 	logger *zap.Logger              // Structured logger for operational visibility
 }
@@ -61,7 +63,7 @@ type TransferUseCase struct {
 //	transferService := NewTransferUseCase(sourceStorage, destStorage, config, logger)
 func NewTransferUseCase(
 	source repository.StorageReader,
-	dest repository.StorageWriter,
+	dest repository.Storage,
 	config *entity.TransferConfig,
 	logger *zap.Logger,
 ) service.TransferService {
@@ -177,10 +179,18 @@ func (t *TransferUseCase) Transfer(
 			continue // Retry on next iteration
 		}
 
+		// Optionally wrap with checksum reader so SHA256 is computed in-flight
+		var csReader *checksumReader
+		var streamReader io.Reader = reader
+		if t.config.VerifyChecksum {
+			csReader = newChecksumReader(reader)
+			streamReader = csReader
+		}
+
 		// Wrap reader with progress tracking
 		// This intercepts Read() calls to calculate speed and report progress
 		progressReader := &progressReader{
-			reader:       reader,
+			reader:       streamReader,
 			total:        size,
 			progressChan: progressChan,
 			fileName:     stat.Name,
@@ -196,6 +206,41 @@ func (t *TransferUseCase) Transfer(
 		if err != nil {
 			lastErr = fmt.Errorf("failed to write destination file: %w", err)
 			continue // Retry on next iteration
+		}
+
+		// Verify checksum when requested: compare SHA256 of sent bytes vs stored bytes
+		if t.config.VerifyChecksum {
+			sourceChecksum := csReader.sum()
+
+			destReader, _, err := t.dest.Read(ctx, destPath)
+			if err != nil {
+				lastErr = fmt.Errorf("checksum verification: failed to read destination: %w", err)
+				continue
+			}
+			h := sha256.New()
+			_, hashErr := io.Copy(h, destReader)
+			_ = destReader.Close()
+			if hashErr != nil {
+				lastErr = fmt.Errorf("checksum verification: failed to hash destination: %w", hashErr)
+				continue
+			}
+			destChecksum := hex.EncodeToString(h.Sum(nil))
+
+			if sourceChecksum != destChecksum {
+				lastErr = fmt.Errorf("checksum mismatch: source=%s destination=%s", sourceChecksum, destChecksum)
+				t.logger.Warn("Checksum mismatch, retrying",
+					zap.String("source", sourcePath),
+					zap.String("source_checksum", sourceChecksum),
+					zap.String("dest_checksum", destChecksum),
+				)
+				continue
+			}
+
+			result.Checksum = sourceChecksum
+			t.logger.Info("Checksum verified",
+				zap.String("source", sourcePath),
+				zap.String("checksum", sourceChecksum),
+			)
 		}
 
 		result.BytesTransferred = size
@@ -499,4 +544,31 @@ func (p *progressReader) Close() error {
 		return closer.Close()
 	}
 	return nil
+}
+
+// checksumReader wraps an io.Reader and computes a SHA256 hash of all bytes
+// that pass through it. The hash is accumulated incrementally so there is no
+// extra memory or I/O cost — bytes are hashed as they are transferred.
+type checksumReader struct {
+	reader io.Reader
+	h      interface {
+		Write([]byte) (int, error)
+		Sum([]byte) []byte
+	}
+}
+
+func newChecksumReader(r io.Reader) *checksumReader {
+	return &checksumReader{reader: r, h: sha256.New()}
+}
+
+func (c *checksumReader) Read(p []byte) (int, error) {
+	n, err := c.reader.Read(p)
+	if n > 0 {
+		_, _ = c.h.Write(p[:n])
+	}
+	return n, err
+}
+
+func (c *checksumReader) sum() string {
+	return hex.EncodeToString(c.h.Sum(nil))
 }

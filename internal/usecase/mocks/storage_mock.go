@@ -33,6 +33,10 @@ type MockStorage struct {
 	WriteError      error
 	StatError       error
 	DeleteError     error
+
+	// CorruptWrite, when true, flips the first byte of every written file to
+	// simulate storage corruption for checksum-verification tests.
+	CorruptWrite bool
 }
 
 func NewMockStorage() *MockStorage {
@@ -119,6 +123,10 @@ func (m *MockStorage) Write(ctx context.Context, path string, reader io.Reader, 
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		return err
+	}
+
+	if m.CorruptWrite && len(data) > 0 {
+		data[0] ^= 0xFF // flip first byte to simulate corruption
 	}
 
 	m.FileContent[path] = data
