@@ -148,6 +148,8 @@ nixcopy transfer -c config.yaml \
 | `--buffer-size` | Buffer size in bytes | 32MB | `--buffer-size 67108864` |
 | `--concurrent-files` | Concurrent file transfers | 4 | `--concurrent-files 8` |
 | `--retry-attempts` | Number of retry attempts | 3 | `--retry-attempts 5` |
+| `--verify-checksum` | SHA-256 end-to-end integrity check | false | `--verify-checksum` |
+| `--resume` | Resume interrupted transfer from partial destination file (local & SFTP) | false | `--resume` |
 
 ---
 
@@ -395,6 +397,51 @@ nixcopy transfer -c config.yaml --help
 # ใช้ verbose mode เพื่อ debug
 nixcopy transfer -c config.yaml -v -s /file -d /file
 ```
+
+### 6. SHA-256 Checksum Verification
+
+ตรวจสอบความสมบูรณ์ของข้อมูลหลังการถ่ายโอน:
+
+```bash
+# เปิด checksum ผ่าน CLI flag
+nixcopy transfer \
+  --source-type local --dest-type sftp \
+  --dest-host sftp.example.com --dest-username user --dest-password pass \
+  --verify-checksum \
+  -s /data/archive.tar.gz -d /backup/archive.tar.gz
+```
+
+ผ่าน config file:
+
+```yaml
+transfer:
+  verify_checksum: true
+```
+
+> **หมายเหตุ**: checksum จะถูกข้ามเมื่อใช้ `--resume` และมีไฟล์บางส่วนอยู่แล้ว
+
+### 7. Resume Interrupted Transfer
+
+ต่อการถ่ายโอนที่หยุดกลางคัน (รองรับ Local และ SFTP เท่านั้น):
+
+```bash
+# ต่อการโอนที่หยุดกลางคัน
+nixcopy transfer \
+  --source-type local --dest-type sftp \
+  --dest-host sftp.example.com --dest-username user --dest-password pass \
+  --resume \
+  -s /data/10gb_file.tar.gz -d /backup/10gb_file.tar.gz
+```
+
+ผ่าน config file:
+
+```yaml
+transfer:
+  enable_resume: true
+  retry_attempts: 5
+```
+
+> **หมายเหตุ**: หาก backend ปลายทางเป็น S3 หรือ Azure Blob จะ fallback เป็น full transfer โดยอัตโนมัติ
 
 ---
 

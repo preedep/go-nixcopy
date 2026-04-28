@@ -8,7 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Initial release of go-nixcopy
+- **SHA-256 checksum verification** — set `verify_checksum: true` or `--verify-checksum`; hash is computed in-flight on the source stream then compared against a re-read of the destination. A mismatch triggers automatic retry. `TransferResult.Checksum` carries the hex digest on success.
+- **Resume capability for interrupted transfers** — set `enable_resume: true` or `--resume`; before each retry attempt the destination is stat'd and, if a partial file exists, the source is read from that offset and the destination is appended rather than overwritten. Supported backends: Local, SFTP. S3 / Azure Blob / FTPS fall back to full re-transfer with a warning log. `TransferResult.ResumedFrom` records the byte offset used.
+- `repository.Resumer` interface — optional interface that storage backends implement to opt into resume support (`ReadFrom` + `AppendWrite`).
+
+### Initial release of go-nixcopy
 - Support for SFTP storage
 - Support for FTPS storage
 - Support for Azure Blob Storage

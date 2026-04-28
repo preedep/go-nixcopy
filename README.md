@@ -103,7 +103,8 @@ transfer:
   retry_attempts: 3
   retry_delay: 5s
   timeout: 30m
-  verify_checksum: false
+  verify_checksum: false     # SHA256 end-to-end integrity check
+  enable_resume: false       # resume interrupted transfers (local & SFTP)
 
 logging:
   level: info                # debug, info, warn, error
@@ -676,6 +677,46 @@ go-nixcopy/
 - จำกัดจำนวน concurrent connections ได้
 - เพิ่มประสิทธิภาพการถ่ายโอน
 
+### Checksum Verification
+
+ตรวจสอบความถูกต้องของข้อมูลด้วย SHA-256 แบบ end-to-end:
+
+```yaml
+transfer:
+  verify_checksum: true
+```
+
+หรือใช้ CLI flag:
+
+```bash
+nixcopy transfer --verify-checksum -s /data/file.zip -d /backup/file.zip ...
+```
+
+- คำนวณ SHA-256 ของ source ระหว่างการถ่ายโอน (ไม่มี overhead เพิ่มเติม)
+- อ่านไฟล์ปลายทางกลับมาตรวจสอบหลังเขียนสำเร็จ
+- หาก hash ไม่ตรง จะ retry อัตโนมัติ
+- `TransferResult.Checksum` เก็บค่า hex ของ SHA-256 เมื่อสำเร็จ
+
+### Resume Transfer
+
+ต่อการถ่ายโอนที่หยุดกลางคันโดยไม่ต้องเริ่มใหม่จากต้น รองรับ **Local** และ **SFTP** (S3/Azure Blob ใช้การ retry แบบปกติ):
+
+```yaml
+transfer:
+  enable_resume: true
+```
+
+หรือใช้ CLI flag:
+
+```bash
+nixcopy transfer --resume -s /data/large_file.tar.gz -d /backup/large_file.tar.gz ...
+```
+
+- ก่อน retry แต่ละครั้ง จะตรวจสอบขนาดไฟล์ปลายทาง
+- หากมีไฟล์บางส่วนอยู่แล้ว จะอ่าน source ต่อจาก offset นั้น
+- Progress แสดงเป็น % ของไฟล์ทั้งหมด (รวม bytes ที่โอนไปแล้ว)
+- `TransferResult.ResumedFrom` เก็บ byte offset ที่ต่อการโอน
+
 ## 🔐 Security Best Practices
 
 1. **ไม่ hardcode credentials** ในโค้ด
@@ -823,10 +864,10 @@ transfer:
 - [x] Comprehensive unit tests
 - [x] Release build optimization
 - [x] Professional-grade code documentation
+- [x] SHA-256 checksum verification (end-to-end integrity)
+- [x] Resume capability สำหรับการถ่ายโอนที่ถูกขัดจอน (Local & SFTP)
 
 ### 🚧 In Progress / Planned
-- [ ] รองรับ checksum verification (MD5, SHA256)
-- [ ] Resume capability สำหรับการถ่ายโอนที่ถูกขัดจอน
 - [ ] Web UI สำหรับการจัดการ
 - [ ] Docker image
 - [ ] รองรับ Google Cloud Storage

@@ -51,14 +51,14 @@ cmd/nixcopy/main.go
 ```
 
 ### Domain (`internal/domain/`)
-- **entity/** — `TransferConfig`, `TransferResult`, `FileInfo`, `TransferProgress`, `FilePattern`
-- **repository/** — `Storage` interface (composes `StorageReader` + `StorageWriter`); no concrete implementations here
+- **entity/** — `TransferConfig` (includes `VerifyChecksum`, `EnableResume`), `TransferResult` (includes `Checksum`, `ResumedFrom`), `FileInfo`, `TransferProgress`, `FilePattern`
+- **repository/** — `Storage` interface (composes `StorageReader` + `StorageWriter`); optional `Resumer` interface (`ReadFrom` + `AppendWrite`) for resume support; no concrete implementations here
 - **service/** — `TransferService` interface
 
 ### Use Case (`internal/usecase/`)
-- `transfer_usecase.go` — single-file and batch transfer; semaphore-based concurrency, non-blocking progress channel updates, configurable retry with backoff
+- `transfer_usecase.go` — single-file and batch transfer; semaphore-based concurrency, non-blocking progress channel updates, configurable retry with backoff; SHA-256 checksum verification; resume from partial destination files
 - `pattern_matcher.go` — expands glob patterns (`*.pdf`, `**/*.log`) by calling `Storage.List` recursively
-- `mocks/storage_mock.go` — `MockStorage` satisfies the `Storage` interface; used in all unit tests
+- `mocks/storage_mock.go` — `MockStorage` satisfies the `Storage` and `Resumer` interfaces; used in all unit tests
 
 ### Infrastructure (`internal/infrastructure/`)
 - **storage/** — factory + one file per backend: `local.go`, `sftp.go`, `ftps.go`, `blob.go` (Azure), `s3.go` (AWS)
@@ -82,6 +82,8 @@ Follow these three steps (see [CONTRIBUTING.md](CONTRIBUTING.md) for a full code
 3. **Register** the new type in `internal/infrastructure/storage/factory.go`
 
 Then write unit tests using `MockStorage` as a reference and add an entry to `examples/`.
+
+**Optionally** implement `repository.Resumer` (`ReadFrom` + `AppendWrite`) to enable `--resume` support. The use case detects this via type assertion at runtime — backends that don't implement it fall back to full re-transfer silently.
 
 ---
 
