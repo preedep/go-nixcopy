@@ -144,6 +144,7 @@ func resetTransferFlags() {
 	sourceAccountName = ""
 	sourceAccountKey = ""
 	sourceContainer = ""
+	sourceTLSMode = ""
 
 	destType = ""
 	destHost = ""
@@ -159,6 +160,7 @@ func resetTransferFlags() {
 	destAccountName = ""
 	destAccountKey = ""
 	destContainer = ""
+	destTLSMode = ""
 
 	bufferSize = 0
 	concurrentFiles = 0

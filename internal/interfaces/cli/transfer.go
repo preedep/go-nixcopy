@@ -60,6 +60,7 @@ var (
 	sourceAccountName string
 	sourceAccountKey  string
 	sourceContainer   string
+	sourceTLSMode     string
 
 	// Destination flags
 	destType        string
@@ -76,6 +77,7 @@ var (
 	destAccountName string
 	destAccountKey  string
 	destContainer   string
+	destTLSMode     string
 
 	// Transfer flags
 	bufferSize      int
@@ -120,6 +122,7 @@ func init() {
 	transferCmd.Flags().StringVar(&sourceAccountName, "source-account-name", "", "Source Azure account name (env: NIXCOPY_SOURCE_ACCOUNT_NAME)")
 	transferCmd.Flags().StringVar(&sourceAccountKey, "source-account-key", "", "Source Azure account key (env: NIXCOPY_SOURCE_ACCOUNT_KEY)")
 	transferCmd.Flags().StringVar(&sourceContainer, "source-container", "", "Source Azure container (env: NIXCOPY_SOURCE_CONTAINER)")
+	transferCmd.Flags().StringVar(&sourceTLSMode, "source-tls-mode", "", "Source FTPS TLS mode: explicit (STARTTLS, port 21) or implicit (TLS-first, port 990) (env: NIXCOPY_SOURCE_TLS_MODE)")
 
 	// Destination storage flags
 	transferCmd.Flags().StringVar(&destType, "dest-type", "", "Destination storage type (sftp, ftps, blob, s3) (env: NIXCOPY_DEST_TYPE)")
@@ -136,6 +139,7 @@ func init() {
 	transferCmd.Flags().StringVar(&destAccountName, "dest-account-name", "", "Destination Azure account name (env: NIXCOPY_DEST_ACCOUNT_NAME)")
 	transferCmd.Flags().StringVar(&destAccountKey, "dest-account-key", "", "Destination Azure account key (env: NIXCOPY_DEST_ACCOUNT_KEY)")
 	transferCmd.Flags().StringVar(&destContainer, "dest-container", "", "Destination Azure container (env: NIXCOPY_DEST_CONTAINER)")
+	transferCmd.Flags().StringVar(&destTLSMode, "dest-tls-mode", "", "Destination FTPS TLS mode: explicit (STARTTLS, port 21) or implicit (TLS-first, port 990) (env: NIXCOPY_DEST_TLS_MODE)")
 
 	// Transfer flags
 	transferCmd.Flags().IntVar(&bufferSize, "buffer-size", 0, "Buffer size in bytes (default: 32MB) (env: NIXCOPY_BUFFER_SIZE)")
