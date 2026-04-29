@@ -58,7 +58,8 @@ make test-race         # race detector
 ```
 internal/
 ├── domain/entity/
-│   ├── pattern_test.go              — FilePattern wildcard detection
+│   ├── pattern_test.go              — FilePattern wildcard detection, Match/MatchFull edge cases
+│   │                                  (invalid patterns, multiple **, prefix mismatch) → 100% coverage
 │   └── transfer_test.go             — TransferConfig / TransferResult fields
 ├── infrastructure/config/
 │   ├── config_test.go               — YAML load, ${ENV_VAR} expansion, defaults
@@ -82,9 +83,12 @@ internal/
 │   ├── s3_integration_test.go       — S3 read/write/list against MinIO (integration tag)
 │   ├── s3_multipart_test.go         — s3PartSizeFor: 5 size scenarios
 │   ├── s3_nil_client_test.go        — nil-client guards: List/Read/Stat/Write/Delete; Disconnect/CreateDirectory no-ops
-│   └── sftp_integration_test.go     — SFTP read/write/list (integration tag)
+│   ├── sftp_integration_test.go     — SFTP read/write/list (integration tag)
+│   └── sftp_nil_client_test.go      — SFTP nil-client guards: List/Read/Stat/Write/Delete/CreateDirectory,
+│                                      ReadFrom/AppendWrite (Resumer), Disconnect no-op
 ├── interfaces/cli/
-│   ├── flags_test.go                — applyCliFlags, validateConfig, --skip-existing, --resume, CLI-over-env precedence
+│   ├── flags_test.go                — applyCliFlags (SFTP/FTPS/S3/Blob/local source+dest, private key, all transfer flags),
+│                                      validateConfig, --skip-existing, --resume, CLI-over-env precedence
 │   ├── ftps_tls_mode_test.go        — --source-tls-mode / --dest-tls-mode: explicit, implicit, empty-no-override,
 │                                      invalid mode rejected, env var path, CLI-over-env precedence
 │   ├── transfer_summary_test.go     — transferSummary JSON shape, omitempty, failed_files
@@ -94,6 +98,9 @@ internal/
     ├── compress_test.go             — gzip/zstd round-trips, passthrough, ratio, invalid algo (6 tests)
     ├── pattern_matcher_test.go      — glob expansion, recursive **, no-match behaviour
     ├── throttle_test.go             — ParseBandwidth formats, passthrough, data integrity, context cancel (4 tests)
+    ├── transfer_usecase_branches_test.go — progressReader.Close (Closer/non-Closer), resume+compression warning,
+    │                                  checksum skipped when resumed, checksum skipped when compressed,
+    │                                  ReadFrom error exhausting retries
     ├── transfer_usecase_skip_test.go — SkipExisting: 5 cases including batch
     └── transfer_usecase_test.go     — success, checksum, resume, retry, batch partial failure
 ```
@@ -208,11 +215,11 @@ LoadFromEnv(cfg)
 
 | Package | Coverage | Notes |
 |---|---|---|
+| `internal/domain/entity` | **100%** | All pattern matching branches including error paths |
 | `internal/infrastructure/config` | ~96% | Config loading, env var loading, all storage types |
-| `internal/usecase` | ~84% | Core transfer logic, all feature paths |
-| `internal/domain/entity` | ~85% | Entities and value objects |
+| `internal/usecase` | ~92% | Core transfer logic, all feature paths including progressReader.Close and warning branches |
 | `internal/infrastructure/logger` | ~72% | All log methods, field helpers, child loggers; `logger.go` Zap stub excluded (dead code) |
-| `internal/interfaces/cli` | ~54% | Flag wiring, validateConfig, TLS mode; `runTransfer`/`runList` require real storage |
-| `internal/infrastructure/storage` | ~45% | Local fully unit-tested; FTPS/Blob/S3/SFTP nil-client guards + auth paths; happy paths need integration tag |
+| `internal/interfaces/cli` | ~58% | Flag wiring, validateConfig, TLS mode; `runTransfer`/`runList` require real storage |
+| `internal/infrastructure/storage` | ~49% | Local fully unit-tested; FTPS/Blob/S3/SFTP nil-client guards + auth paths; happy paths need integration tag |
 
 Storage coverage in unit mode reflects the nil-client guard pattern — every backend's error paths are covered without credentials. Happy paths (List, Read, Write against real endpoints) are covered by integration tests (`-tags=integration`) against MinIO and SFTP containers.
