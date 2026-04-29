@@ -40,7 +40,7 @@
 
 ## 📋 ความต้องการของระบบ
 
-- Go 1.21 หรือสูงกว่า
+- Go 1.24 หรือสูงกว่า
 - การเข้าถึง Storage systems ที่ต้องการใช้งาน
 - Credentials ที่จำเป็นสำหรับแต่ละ storage
 
@@ -105,6 +105,7 @@ transfer:
   timeout: 30m
   verify_checksum: false     # SHA256 end-to-end integrity check
   enable_resume: false       # resume interrupted transfers (local & SFTP)
+  skip_existing: false       # skip file if destination already has same size
 ```
 
 > **Note:** The `logging:` block is deprecated and no longer read. All logs are now emitted in standard-app-log v1.0 JSON format to stdout automatically. See [Application Logging](#-application-logging) below.
@@ -544,17 +545,23 @@ nixcopy list -c config.yaml -p data/ --source=false
 
 ### Output ตัวอย่าง
 
-```
-[file.zip] 45.23% | 125.45 MB/s | ETA: 0h2m15s
-[file.zip] ✓ Completed | 128.32 MB/s
+Progress lines go to **stderr** (human-readable, safe to discard in pipelines):
 
-Transfer Summary:
-  Source: /remote/data/file.zip
-  Destination: backup/file.zip
-  Bytes Transferred: 10737418240 (10240.00 MB)
-  Duration: 1m19.823s
-  Average Speed: 128.32 MB/s
-  Status: completed
+```
+[file.zip] 45.23% | 125.45 MB/s | ETA: 1m15s
+[file.zip] ✓ Completed | 128.32 MB/s
+```
+
+On completion, a single JSON line is written to **stdout** (machine-readable):
+
+```json
+{"event":"transfer_summary","total_files":3,"successful":2,"skipped":1,"failed":0,"bytes_transferred":10737418240,"duration_ms":79823,"average_speed_mbps":128.32}
+```
+
+Downstream tools (Airflow log parsers, Loki, CloudWatch Insights) filter on `event="transfer_summary"` to extract metrics without parsing human text. When files fail, a `failed_files` array is included:
+
+```json
+{"event":"transfer_summary","total_files":3,"successful":2,"skipped":0,"failed":1,"bytes_transferred":5368709120,"duration_ms":45000,"average_speed_mbps":115.6,"failed_files":[{"path":"/src/bad.csv","error":"connection reset by peer"}]}
 ```
 
 ## 🧪 การทดสอบ
@@ -562,31 +569,38 @@ Transfer Summary:
 ### รัน Unit Tests
 
 ```bash
-# รัน tests ทั้งหมด
-go test ./...
+# รัน tests ทั้งหมด (ตรงกับ CI)
+go test -race -covermode=atomic -count=1 ./...
 
 # รัน tests พร้อม verbose output
 go test -v ./...
 
 # รัน tests พร้อม coverage report
-go test -cover ./...
-go test -coverprofile=coverage.out ./...
+go test -race -covermode=atomic -coverprofile=coverage.out ./...
 go tool cover -html=coverage.out
+
+# รัน integration tests (ต้องการ MinIO และ SFTP server)
+go test -tags=integration -race -count=1 -v ./internal/infrastructure/storage/...
 
 # ใช้ Makefile
 make test
 make test-coverage
 make test-verbose
+make test-race
 ```
 
 ### Test Coverage
 
 โปรเจกต์มี unit tests ครอบคลุมส่วนสำคัญ:
 - ✅ Domain entities (pattern matching, transfer)
-- ✅ Use cases (transfer, pattern matcher)
-- ✅ Configuration และ validation
-- ✅ CLI flags และ parameter handling
-- ✅ Mock storage สำหรับ testing
+- ✅ Use cases (transfer, pattern matcher, retry, checksum, resume)
+- ✅ Skip-existing / idempotent retry (5 cases)
+- ✅ S3 multipart part-size algorithm (5 size scenarios)
+- ✅ Azure Blob block-size algorithm (5 size scenarios)
+- ✅ JSON exit summary shape and omitempty behaviour
+- ✅ `NIXCOPY_*` env var loading including `NIXCOPY_SKIP_EXISTING`
+- ✅ CLI flags including `--skip-existing` and `--resume`
+- ✅ Configuration loading and validation
 
 📖 **อ่านเพิ่มเติม:** [TESTING.md](TESTING.md) - คู่มือการทดสอบแบบละเอียด
 
@@ -691,6 +705,39 @@ go-nixcopy/
 - รองรับการถ่ายโอนหลายไฟล์พร้อมกัน
 - จำกัดจำนวน concurrent connections ได้
 - เพิ่มประสิทธิภาพการถ่ายโอน
+
+### S3 Multipart Upload
+
+ใช้ AWS SDK v2 `transfermanager` สำหรับการ upload ไปยัง S3 — ไม่มีข้อจำกัด 5 GB ของ `PutObject`:
+
+- **Block size**: dynamic — default 16 MiB, scales up เมื่อ `ceil(size / 10,000) > 16 MiB` เพื่อไม่เกิน 10,000 parts ของ S3
+- **Minimum**: 5 MiB (S3 hard limit)
+- **Concurrency**: 5 concurrent part uploads ต่อไฟล์
+- รองรับไฟล์ได้ถึง ~5 TiB
+
+### Azure Blob Parallel Block Upload
+
+ใช้ `UploadStream` พร้อม `BlockSize` และ `Concurrency` options:
+
+- **Block size**: dynamic — default 16 MiB, scales up เมื่อ `ceil(size / 50,000) > 16 MiB` เพื่อไม่เกิน 50,000 blocks ของ Azure
+- **Minimum**: 1 MiB (Azure SDK floor)
+- **Concurrency**: 5 concurrent block uploads ต่อ blob
+- รองรับ blob ได้ถึง ~190 TiB
+
+### Idempotent Retry / Skip-Existing
+
+ป้องกันการถ่ายโอนซ้ำเมื่อ Airflow DAG retry:
+
+```bash
+nixcopy transfer --skip-existing -s /data/*.csv -d processed/
+# หรือ
+export NIXCOPY_SKIP_EXISTING=true
+```
+
+- ก่อนถ่ายโอนแต่ละไฟล์ จะตรวจสอบ `Stat` ที่ปลายทาง
+- หาก destination มีขนาดเท่ากับ source → skip (status: `skipped`)
+- หากขนาดต่างกัน หรือยังไม่มีไฟล์ → transfer ปกติ
+- ปลอดภัยสำหรับ batch — รายงาน `skipped` แยกจาก `successful` ใน JSON summary
 
 ### Checksum Verification
 
@@ -874,6 +921,7 @@ The image supports **no-config-file** mode. Inject all storage config as `NIXCOP
 | | `NIXCOPY_RETRY_DELAY` | Retry delay e.g. `10s` (default: 5s) |
 | | `NIXCOPY_VERIFY_CHECKSUM` | `true`/`false` (default: false) |
 | | `NIXCOPY_ENABLE_RESUME` | `true`/`false` (default: false) |
+| | `NIXCOPY_SKIP_EXISTING` | `true`/`false` — skip if dest has same size (default: false) |
 
 📖 Full reference with every env var: [CLI_USAGE.md — NIXCOPY_* Environment Variables](CLI_USAGE.md#nixcopy-environment-variables)
 
@@ -1031,6 +1079,11 @@ transfer:
 - [x] Resume capability สำหรับการถ่ายโอนที่ถูกขัดจอน (Local & SFTP)
 - [x] Standard application logging (standard-app-log v1.0) — structured JSON to stdout, K8s/Airflow ready
 - [x] **KPO Golden Image** — non-root user, pinned base image, correct exit codes, `NIXCOPY_*` env-var config, multi-arch (`linux/amd64` + `linux/arm64`), OCI labels
+- [x] **S3 multipart upload** — AWS SDK v2 `transfermanager`, dynamic part sizing, 5 concurrent parts, supports up to ~5 TiB
+- [x] **Azure Blob parallel block upload** — dynamic `BlockSize` + `Concurrency=5`, supports up to ~190 TiB
+- [x] **Idempotent retry** — `--skip-existing` / `NIXCOPY_SKIP_EXISTING` skips files where destination size matches source
+- [x] **Structured JSON exit summary** — `event=transfer_summary` JSON line to stdout; progress to stderr; `sync.WaitGroup` prevents interleave in K8s log streams
+- [x] **CI workflow** — GitHub Actions with correct Go version (`go-version-file: go.mod`), `go vet`, `go mod tidy` check, `-race -covermode=atomic`, MinIO + SFTP integration tests, `.golangci.yml` with explicit linter set
 
 ### 🚧 In Progress / Planned
 - [ ] Web UI สำหรับการจัดการ

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Speed & Reliability
+
+- **S3 multipart upload** (`internal/infrastructure/storage/s3.go`) — replaced single `PutObject` (5 GB hard limit) with AWS SDK v2 `transfermanager`. Block size is computed dynamically: default 16 MiB, scales up when `ceil(size / 10,000) > 16 MiB` so the 10,000-part S3 limit is never exceeded; minimum 5 MiB. Five concurrent part uploads per file. Supports files up to ~5 TiB.
+- **Azure Blob parallel block upload** (`internal/infrastructure/storage/blob.go`) — replaced empty `UploadStreamOptions{}` with `BlockSize` + `Concurrency`. Block size computed with same algorithm as S3 (50,000-block Azure limit, 1 MiB floor). Five concurrent block uploads per blob. Supports blobs up to ~190 TiB.
+- **Idempotent retry / skip-existing** (`--skip-existing` / `NIXCOPY_SKIP_EXISTING=true`) — before each transfer, `Stat` the destination; if it exists with the same byte count as the source, mark the file `skipped` without touching the destination. Files with mismatched sizes are re-transferred. Batch transfers report `skipped` separately from `successful` in the JSON summary. Safe for Airflow DAG retries.
+- **Structured JSON exit summary to stdout** (`internal/interfaces/cli/transfer.go`) — on completion, a single JSON line is written to stdout: `{"event":"transfer_summary","total_files":N,"successful":N,"skipped":N,"failed":N,"bytes_transferred":N,"duration_ms":N,"average_speed_mbps":N}`. `failed_files` array included when `failed > 0`. `average_speed_mbps` omitted (omitempty) when zero.
+- **Progress to stderr** — all `\r`-based progress lines moved from stdout to stderr. A `sync.WaitGroup` ensures the progress goroutine fully drains before the JSON summary line is written, preventing interleaving in K8s log streams.
+
 ### Added — Kubernetes / KPO Golden Image
 
 - **NIXCOPY_* env-var-only config** (`internal/infrastructure/config/envloader.go`) — all storage and transfer settings can now be injected as `NIXCOPY_SOURCE_*` / `NIXCOPY_DEST_*` / `NIXCOPY_*` environment variables; no config file mount required. Precedence: CLI flags > `NIXCOPY_*` env vars > config file > defaults. Enables clean KubernetesPodOperator deployments where credentials come from Kubernetes Secrets.
@@ -18,6 +26,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Non-root container user** (`Dockerfile`) — runtime stage now creates a dedicated `nixcopy` system user/group and switches to it with `USER nixcopy` before the entrypoint. Pods will no longer be rejected by `runAsNonRoot: true` Pod Security Admission policies.
 - **Pinned base images** (`Dockerfile`) — builder changed from `golang:1.21-alpine` to `golang:1.21-alpine3.21`; runtime changed from `alpine:latest` to `alpine:3.21`. Golden images are now reproducible and auditable.
 - **Correct exit codes on partial failure** (`internal/interfaces/cli/transfer.go`) — when one or more files in a batch fail to transfer, the command now returns a non-nil error (`N of M file(s) failed to transfer`). Previously `runTransfer` returned `nil` even when `failCount > 0`, causing KPO to mark the Airflow task as successful despite data loss.
+
+### Added — CI / Quality
+
+- **GitHub Actions CI workflow** (`.github/workflows/ci.yml`) — four jobs: `lint` (go vet + `go mod tidy` diff check + golangci-lint), `test` (unit tests with `-race -covermode=atomic -count=1`), `integration-test` (MinIO + SFTP service containers), `build` (binary produced only after all three pass). `build` job depends on all three gates.
+- **`.golangci.yml`** — explicit linter set: `errcheck`, `staticcheck`, `unused`, `gofmt`, `goimports`, `misspell`, `unconvert`, `unparam`. Prevents accidental reliance on golangci-lint's unstable default set.
+
+### Fixed — CI
+
+- **Go version mismatch** — `go-version: "1.21"` hardcoded in all workflow jobs replaced with `go-version-file: go.mod` (go.mod declares `go 1.24`). Applies to both `ci.yml` and `release.yml`.
+- **Coverage mode** — test run now uses `-covermode=atomic` (required alongside `-race`; without it coverage numbers are unreliable under the race detector).
+- **Test caching** — added `-count=1` to unit and integration test runs to prevent Go's test cache from hiding real failures on re-runs.
+
+### Added — Tests
+
+- `internal/infrastructure/storage/s3_multipart_test.go` — 5 table-driven tests for `s3PartSizeFor`: unknown size, 1 MiB, 100 MiB, 160 GiB, 5 TiB.
+- `internal/infrastructure/storage/blob_multipart_test.go` — 5 table-driven tests for `blobBlockSizeFor`: unknown size, 1 MiB, 100 MiB, 800 GiB, 190 TiB.
+- `internal/usecase/transfer_usecase_skip_test.go` — 5 tests: same-size skips, different-size re-transfers, missing destination transfers, `SkipExisting=false` always transfers, batch with 2-of-3 skipped.
+- `internal/interfaces/cli/transfer_summary_test.go` — 4 tests: JSON field names, `average_speed_mbps` omitted when zero, `failed_files` array shape, `event` field always present.
+- `internal/infrastructure/config/envloader_test.go` — added `TestLoadFromEnv_SkipExisting` for `NIXCOPY_SKIP_EXISTING`.
+- `internal/interfaces/cli/flags_test.go` — added `TestApplyCliFlags_SkipExisting`, `TestApplyCliFlags_EnableResume`, `TestApplyCliFlags_SkipExisting_False_DoesNotOverrideConfigFile`; extracted `resetTransferFlags` helper.
 
 ### Added — Previous Release
 
