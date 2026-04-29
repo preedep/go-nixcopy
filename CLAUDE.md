@@ -4,6 +4,14 @@
 
 `go-nixcopy` is Golang CLI Project , for fast universal copy several source/sink (ex. sftp server to azure blob storage)  
  `go-nixcop` is focus small binary , fast , low memory consumption
+
+## Architecture Decision Records
+
+Non-obvious design and testing tradeoffs are documented as ADRs in [`docs/adr/`](docs/adr/). Check there before re-proposing a rejected alternative.
+
+| ADR | Decision |
+|-----|----------|
+| [ADR-0001](docs/adr/0001-sftp-auth-unit-test-strategy.md) | SFTP auth unit test strategy: extract helper over in-process SSH server |
 ## Commands
 
 ```bash
