@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jlaffaye/ftp"
+
 	"github.com/preedep/go-nixcopy/internal/domain/entity"
 	"github.com/preedep/go-nixcopy/internal/domain/repository"
 	"github.com/preedep/go-nixcopy/internal/infrastructure/config"

@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+
 	"github.com/preedep/go-nixcopy/internal/domain/entity"
 	"github.com/preedep/go-nixcopy/internal/domain/repository"
 	appconfig "github.com/preedep/go-nixcopy/internal/infrastructure/config"

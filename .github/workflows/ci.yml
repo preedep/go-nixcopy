@@ -26,11 +26,12 @@ jobs:
       - name: go vet
         run: go vet ./...
 
-      - name: gofmt check
+      - name: gofmt / goimports check
         run: |
-          unformatted=$(gofmt -l .)
+          go install golang.org/x/tools/cmd/goimports@latest
+          unformatted=$(goimports -l -local github.com/preedep/go-nixcopy .)
           if [ -n "$unformatted" ]; then
-            echo "The following files are not gofmt-formatted:"
+            echo "The following files need goimports/gofmt:"
             echo "$unformatted"
             exit 1
           fi

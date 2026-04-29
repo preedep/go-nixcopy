@@ -6,12 +6,13 @@ import (
 	"os"
 	"time"
 
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+
 	"github.com/preedep/go-nixcopy/internal/domain/repository"
 	"github.com/preedep/go-nixcopy/internal/infrastructure/config"
 	"github.com/preedep/go-nixcopy/internal/infrastructure/logger"
 	"github.com/preedep/go-nixcopy/internal/infrastructure/storage"
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var (

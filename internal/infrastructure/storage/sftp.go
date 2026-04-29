@@ -8,10 +8,11 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/sftp"
+	"golang.org/x/crypto/ssh"
+
 	"github.com/preedep/go-nixcopy/internal/domain/entity"
 	"github.com/preedep/go-nixcopy/internal/domain/repository"
 	"github.com/preedep/go-nixcopy/internal/infrastructure/config"
-	"golang.org/x/crypto/ssh"
 )
 
 type SFTPStorage struct {

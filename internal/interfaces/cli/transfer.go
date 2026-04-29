@@ -10,13 +10,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+
 	"github.com/preedep/go-nixcopy/internal/domain/entity"
 	"github.com/preedep/go-nixcopy/internal/infrastructure/config"
 	"github.com/preedep/go-nixcopy/internal/infrastructure/logger"
 	"github.com/preedep/go-nixcopy/internal/infrastructure/storage"
 	"github.com/preedep/go-nixcopy/internal/usecase"
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 // transferSummary is the structured JSON line written to stdout on completion.
