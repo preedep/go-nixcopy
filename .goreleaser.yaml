@@ -91,7 +91,7 @@ brews:
 
 # .deb and .rpm packages
 nfpms:
-  - id: nixcopy
+  - id: nixcopy-pkg
     package_name: nixcopy
     homepage: https://github.com/preedep/go-nixcopy
     description: "Fast universal file-transfer CLI — SFTP, FTPS, Azure Blob, AWS S3, local disk"
@@ -109,7 +109,7 @@ nfpms:
 # Requires FURY_TOKEN secret (push token from fury.io/dashboard).
 publishers:
   - name: fury
-    ids: [nixcopy]
+    ids: [nixcopy-pkg]
     dir: "{{ dir .ArtifactPath }}"
     cmd: >-
       curl -sf -F package=@{{ .ArtifactName }}
