@@ -150,6 +150,8 @@ nixcopy transfer -c config.yaml \
 | `--retry-attempts` | Number of retry attempts | 3 | `--retry-attempts 5` |
 | `--verify-checksum` | SHA-256 end-to-end integrity check | false | `--verify-checksum` |
 | `--resume` | Resume interrupted transfer from partial destination file (local & SFTP) | false | `--resume` |
+| `--skip-existing` | Skip file if destination already has same size (idempotent retries) | false | `--skip-existing` |
+| `--bandwidth-limit` | Max bandwidth per file — accepts suffixes: `KB`, `MB`, `GB`, `KiB`, `MiB`, `GiB`, or raw bytes; `0`/empty = unlimited | unlimited | `--bandwidth-limit 10MB` |
 
 ---
 
@@ -350,6 +352,8 @@ Same set of variables with `NIXCOPY_DEST_` prefix:
 | `NIXCOPY_TIMEOUT` | `30m` | Per-transfer timeout |
 | `NIXCOPY_VERIFY_CHECKSUM` | `false` | SHA-256 end-to-end integrity check |
 | `NIXCOPY_ENABLE_RESUME` | `false` | Resume partial transfers (local & SFTP) |
+| `NIXCOPY_SKIP_EXISTING` | `false` | Skip file if destination size matches source |
+| `NIXCOPY_BANDWIDTH_LIMIT` | `0` | Max bytes/sec per file (raw integer; `0` = unlimited) |
 
 ### Observability / Context
 

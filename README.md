@@ -31,6 +31,7 @@
   - Buffer size ที่ปรับแต่งได้
   - Retry mechanism อัตโนมัติเมื่อเกิดข้อผิดพลาด
   - Progress tracking แบบ real-time สำหรับแต่ละไฟล์
+  - Bandwidth limiting ต่อไฟล์ (`--bandwidth-limit 10MB`)
 
 - **สถาปัตยกรรม**
   - ออกแบบตาม Clean Architecture principles
@@ -106,6 +107,7 @@ transfer:
   verify_checksum: false     # SHA256 end-to-end integrity check
   enable_resume: false       # resume interrupted transfers (local & SFTP)
   skip_existing: false       # skip file if destination already has same size
+  bandwidth_limit: 0         # max bytes/sec per file; 0 = unlimited
 ```
 
 > **Note:** The `logging:` block is deprecated and no longer read. All logs are now emitted in standard-app-log v1.0 JSON format to stdout automatically. See [Application Logging](#-application-logging) below.
@@ -598,8 +600,9 @@ make test-race
 - ✅ S3 multipart part-size algorithm (5 size scenarios)
 - ✅ Azure Blob block-size algorithm (5 size scenarios)
 - ✅ JSON exit summary shape and omitempty behaviour
-- ✅ `NIXCOPY_*` env var loading including `NIXCOPY_SKIP_EXISTING`
-- ✅ CLI flags including `--skip-existing` and `--resume`
+- ✅ `NIXCOPY_*` env var loading including `NIXCOPY_SKIP_EXISTING` and `NIXCOPY_BANDWIDTH_LIMIT`
+- ✅ CLI flags including `--skip-existing`, `--resume`, and `--bandwidth-limit`
+- ✅ Bandwidth throttle: `ParseBandwidth` (all unit suffixes), data integrity, context cancel abort
 - ✅ Configuration loading and validation
 
 📖 **อ่านเพิ่มเติม:** [TESTING.md](TESTING.md) - คู่มือการทดสอบแบบละเอียด
@@ -723,6 +726,30 @@ go-nixcopy/
 - **Minimum**: 1 MiB (Azure SDK floor)
 - **Concurrency**: 5 concurrent block uploads ต่อ blob
 - รองรับ blob ได้ถึง ~190 TiB
+
+### Bandwidth Limiting
+
+จำกัด throughput ต่อไฟล์เพื่อป้องกัน network saturation:
+
+```bash
+# ผ่าน CLI flag (รองรับ suffix: KB, MB, GB, KiB, MiB, GiB)
+nixcopy transfer --bandwidth-limit 10MB -s /data/*.csv -d processed/
+
+# ผ่าน env var (raw bytes per second)
+export NIXCOPY_BANDWIDTH_LIMIT=10485760   # 10 MB/s
+```
+
+ผ่าน config file:
+
+```yaml
+transfer:
+  bandwidth_limit: 10485760   # 10 MB/s; 0 = unlimited (default)
+```
+
+- ใช้ cumulative-bytes throttle — ไม่มี external dependency
+- ยกเลิกทันทีเมื่อ context ถูก cancel (Ctrl-C / KPO pod preemption)
+- `bandwidth_limit: 0` หรือ flag ว่าง = ไม่จำกัด (default)
+- Limit ใช้กับแต่ละไฟล์ — concurrent transfers ใช้แยกกัน
 
 ### Idempotent Retry / Skip-Existing
 
@@ -937,6 +964,7 @@ The image supports **no-config-file** mode. Inject all storage config as `NIXCOP
 | | `NIXCOPY_VERIFY_CHECKSUM` | `true`/`false` (default: false) |
 | | `NIXCOPY_ENABLE_RESUME` | `true`/`false` (default: false) |
 | | `NIXCOPY_SKIP_EXISTING` | `true`/`false` — skip if dest has same size (default: false) |
+| | `NIXCOPY_BANDWIDTH_LIMIT` | max bytes/sec per file (raw integer; `0` = unlimited) |
 
 📖 Full reference with every env var: [CLI_USAGE.md — NIXCOPY_* Environment Variables](CLI_USAGE.md#nixcopy-environment-variables)
 
@@ -1100,11 +1128,11 @@ transfer:
 - [x] **Idempotent retry** — `--skip-existing` / `NIXCOPY_SKIP_EXISTING` skips files where destination size matches source
 - [x] **Structured JSON exit summary** — `event=transfer_summary` JSON line to stdout; progress to stderr; `sync.WaitGroup` prevents interleave in K8s log streams
 - [x] **CI workflow** — GitHub Actions with correct Go version (`go-version-file: go.mod`), `go vet`, `go mod tidy` check, `-race -covermode=atomic`, MinIO + SFTP integration tests, `.golangci.yml` with explicit linter set
+- [x] **Bandwidth limiting** — `--bandwidth-limit` / `NIXCOPY_BANDWIDTH_LIMIT`; accepts `10MB`, `1GB`, `512KB` or raw bytes; cumulative-bytes throttle per file with context-aware cancel; no external dependencies
 
 ### 🚧 In Progress / Planned
 - [ ] Web UI สำหรับการจัดการ
 - [ ] รองรับ Google Cloud Storage
-- [ ] Bandwidth limiting
 - [ ] Scheduling transfers
 - [ ] Email notifications
 - [ ] Compression support (gzip, zstd)

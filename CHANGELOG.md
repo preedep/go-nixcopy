@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Bandwidth Limiting
+
+- **`--bandwidth-limit` CLI flag** (`internal/interfaces/cli/transfer.go`) — accepts human-readable suffixes (`10MB`, `1GB`, `512KB`, `10MiB`, etc.) or raw byte integers. Parsed via `usecase.ParseBandwidth`. Empty / `0` = unlimited (default).
+- **`NIXCOPY_BANDWIDTH_LIMIT` env var** (`internal/infrastructure/config/envloader.go`) — raw bytes/sec integer; read by `setEnvInt64` helper added alongside the existing `setEnvInt`.
+- **`BandwidthLimit int64` field** added to `entity.TransferConfig` and `config.TransferConfig` (`bandwidth_limit` YAML/JSON key).
+- **`ThrottledReader`** (`internal/usecase/throttle.go`) — cumulative-bytes approach: tracks bytes sent since an epoch and sleeps the exact deficit when ahead of the target rate. Context cancellation aborts the sleep immediately. Epoch window is normalised every `bytesPerSec` bytes to prevent int64 overflow on very long transfers. No external dependencies (stdlib `time` only).
+- **`ParseBandwidth`** (`internal/usecase/throttle.go`) — parses `GiB`/`GB`/`MiB`/`MB`/`KiB`/`KB`/`G`/`M`/`K` suffixes (case-insensitive) and raw integer strings. Returns `(0, nil)` for empty or `"0"` (unlimited).
+- **Unit tests** (`internal/usecase/throttle_test.go`) — 4 tests: all `ParseBandwidth` formats and error cases, zero-rate passthrough (no `ThrottledReader` allocated), data integrity over 64 KB payload, context cancel abort with 1-byte/s rate.
+- **`TestLoadFromEnv_BandwidthLimit`** added to `internal/infrastructure/config/envloader_test.go`.
+
 ### Added — Speed & Reliability
 
 - **S3 multipart upload** (`internal/infrastructure/storage/s3.go`) — replaced single `PutObject` (5 GB hard limit) with AWS SDK v2 `transfermanager`. Block size is computed dynamically: default 16 MiB, scales up when `ceil(size / 10,000) > 16 MiB` so the 10,000-part S3 limit is never exceeded; minimum 5 MiB. Five concurrent part uploads per file. Supports files up to ~5 TiB.
