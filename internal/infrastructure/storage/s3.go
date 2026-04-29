@@ -11,7 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
-	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/preedep/go-nixcopy/internal/domain/entity"
@@ -226,13 +226,12 @@ func (s *S3Storage) Write(ctx context.Context, path string, reader io.Reader, si
 
 	partSize := s3PartSizeFor(size)
 
-	uploader := manager.NewUploader(s.s3Client, func(u *manager.Uploader) {
-		u.PartSize = partSize
-		u.Concurrency = s3UploadConcurrency
-		u.LeavePartsOnError = false
+	tm := transfermanager.New(s.s3Client, func(o *transfermanager.Options) {
+		o.PartSizeBytes = partSize
+		o.Concurrency = s3UploadConcurrency
 	})
 
-	_, err := uploader.Upload(ctx, &s3.PutObjectInput{
+	_, err := tm.UploadObject(ctx, &transfermanager.UploadObjectInput{
 		Bucket: aws.String(s.config.Bucket),
 		Key:    aws.String(key),
 		Body:   reader,
