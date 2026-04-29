@@ -13,6 +13,7 @@ Fast universal file-transfer CLI — move data between SFTP, FTPS, Azure Blob, A
 - [Features](#features)
 - [Architecture](#architecture)
 - [How to Use](#how-to-use)
+- [Airflow Integration](#airflow-integration)
 - [Roadmap](#roadmap)
 
 ---
@@ -187,6 +188,137 @@ A JSON summary goes to **stdout** on completion (machine-readable):
 | Release build flags & binary sizes | [BUILD.md](BUILD.md) |
 | Deployment environments (EKS, AKS, on-prem) | [ENVIRONMENT_GUIDE.md](ENVIRONMENT_GUIDE.md) |
 | Contributing a new storage backend | [CONTRIBUTING.md](CONTRIBUTING.md) |
+
+---
+
+## Airflow Integration
+
+go-nixcopy works as a drop-in task in Apache Airflow via `KubernetesPodOperator` (KPO).  
+No config file mount is needed — all storage credentials are injected as `NIXCOPY_*` env vars from Kubernetes Secrets.
+
+### How it works
+
+```
+Airflow Scheduler
+    └─> KubernetesPodOperator
+            └─> nickmsft/gonixcopy pod
+                    ├── NIXCOPY_* env vars  ← from K8s Secret
+                    ├── transfer (source → destination)
+                    └── stdout: JSON summary  ← parsed by Airflow log / Loki
+```
+
+### DAG example — SFTP to S3
+
+```python
+from datetime import datetime
+from airflow import DAG
+from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
+from kubernetes.client import models as k8s
+
+with DAG(
+    dag_id="sftp_to_s3_transfer",
+    schedule="0 2 * * *",       # daily at 02:00
+    start_date=datetime(2024, 1, 1),
+    catchup=False,
+    tags=["nixcopy", "sftp", "s3"],
+) as dag:
+
+    transfer = KubernetesPodOperator(
+        task_id="transfer_sftp_to_s3",
+        image="nickmsft/gonixcopy:latest",   # pin to a specific tag in production
+        cmds=["./nixcopy"],
+        arguments=[
+            "transfer",
+            "-s", "/data/exports/*.csv",
+            "-d", "processed/{{ ds }}/",     # Airflow date partition
+            "--concurrent-files", "4",
+            "--skip-existing",
+        ],
+        env_vars=[
+            # Observability
+            k8s.V1EnvVar(name="NIXCOPY_CORRELATION_ID", value="{{ run_id }}"),
+            k8s.V1EnvVar(name="NIXCOPY_APP_VERSION",    value="latest"),
+            k8s.V1EnvVar(name="POD_NAME", value_from=k8s.V1EnvVarSource(
+                field_ref=k8s.V1ObjectFieldSelector(field_path="metadata.name"))),
+
+            # Source — SFTP credentials from K8s Secret
+            k8s.V1EnvVar(name="NIXCOPY_SOURCE_TYPE", value="sftp"),
+            k8s.V1EnvVar(name="NIXCOPY_SOURCE_HOST", value_from=k8s.V1EnvVarSource(
+                secret_key_ref=k8s.V1SecretKeySelector(name="sftp-creds", key="host"))),
+            k8s.V1EnvVar(name="NIXCOPY_SOURCE_USERNAME", value_from=k8s.V1EnvVarSource(
+                secret_key_ref=k8s.V1SecretKeySelector(name="sftp-creds", key="username"))),
+            k8s.V1EnvVar(name="NIXCOPY_SOURCE_PASSWORD", value_from=k8s.V1EnvVarSource(
+                secret_key_ref=k8s.V1SecretKeySelector(name="sftp-creds", key="password"))),
+
+            # Destination — S3 via IRSA (no keys needed)
+            k8s.V1EnvVar(name="NIXCOPY_DEST_TYPE",      value="s3"),
+            k8s.V1EnvVar(name="NIXCOPY_DEST_REGION",    value="ap-southeast-1"),
+            k8s.V1EnvVar(name="NIXCOPY_DEST_BUCKET",    value="my-data-bucket"),
+            k8s.V1EnvVar(name="NIXCOPY_DEST_AUTH_TYPE", value="web_identity"),
+        ],
+        security_context=k8s.V1PodSecurityContext(run_as_non_root=True),
+        namespace="airflow",
+        service_account_name="nixcopy-sa",   # bound to IAM role via IRSA
+        get_logs=True,
+        is_delete_operator_pod=True,
+        in_cluster=True,
+    )
+```
+
+### DAG example — Azure Blob to SFTP
+
+```python
+    blob_to_sftp = KubernetesPodOperator(
+        task_id="transfer_blob_to_sftp",
+        image="nickmsft/gonixcopy:latest",
+        cmds=["./nixcopy"],
+        arguments=[
+            "transfer",
+            "-s", "reports/{{ ds }}/*.pdf",
+            "-d", "/upload/reports/{{ ds }}/",
+        ],
+        env_vars=[
+            k8s.V1EnvVar(name="NIXCOPY_CORRELATION_ID", value="{{ run_id }}"),
+
+            # Source — Azure Blob with Managed Identity
+            k8s.V1EnvVar(name="NIXCOPY_SOURCE_TYPE",         value="blob"),
+            k8s.V1EnvVar(name="NIXCOPY_SOURCE_ACCOUNT_NAME", value="mystorageaccount"),
+            k8s.V1EnvVar(name="NIXCOPY_SOURCE_CONTAINER",    value="reports"),
+            k8s.V1EnvVar(name="NIXCOPY_SOURCE_AUTH_TYPE",    value="managed_identity"),
+
+            # Destination — SFTP
+            k8s.V1EnvVar(name="NIXCOPY_DEST_TYPE", value="sftp"),
+            k8s.V1EnvVar(name="NIXCOPY_DEST_HOST", value_from=k8s.V1EnvVarSource(
+                secret_key_ref=k8s.V1SecretKeySelector(name="sftp-creds", key="host"))),
+            k8s.V1EnvVar(name="NIXCOPY_DEST_USERNAME", value_from=k8s.V1EnvVarSource(
+                secret_key_ref=k8s.V1SecretKeySelector(name="sftp-creds", key="username"))),
+            k8s.V1EnvVar(name="NIXCOPY_DEST_PASSWORD", value_from=k8s.V1EnvVarSource(
+                secret_key_ref=k8s.V1SecretKeySelector(name="sftp-creds", key="password"))),
+        ],
+        security_context=k8s.V1PodSecurityContext(run_as_non_root=True),
+        namespace="airflow",
+        get_logs=True,
+        is_delete_operator_pod=True,
+        in_cluster=True,
+    )
+```
+
+### Transfer output in Airflow logs
+
+Progress lines go to **stderr** (visible in Airflow task logs):
+
+```
+[report_jan.pdf] 72.10% | 98.32 MB/s | ETA: 0m12s
+[report_jan.pdf] ✓ Completed | 101.45 MB/s
+```
+
+The JSON summary goes to **stdout** — parse it with Loki / CloudWatch Insights using `event="transfer_summary"`:
+
+```json
+{"event":"transfer_summary","total_files":5,"successful":4,"skipped":1,"failed":0,"bytes_transferred":524288000,"duration_ms":5120,"average_speed_mbps":98.32}
+```
+
+> **Tip:** Pass `{{ run_id }}` as `NIXCOPY_CORRELATION_ID` to correlate all log lines from a DAG run across Loki / CloudWatch.
 
 ---
 
