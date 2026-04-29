@@ -864,18 +864,33 @@ make docker-build
 # Requires: docker buildx, a builder with multi-arch support, and a registry
 IMAGE_NAME=your-registry/nixcopy make docker-buildx
 
+# Run using NIXCOPY_* env vars (no config file needed — recommended for KPO)
+make docker-run
+
+# Run mounting a local config.yaml
+make docker-run-config
+
 # Inspect OCI labels on the built image
 docker inspect go-nixcopy:latest | jq '.[0].Config.Labels'
+
+# Debug shell (busybox — never use :debug in production)
+docker run --rm --entrypoint /busybox/sh \
+  gcr.io/distroless/static-debian12:debug
 ```
 
 The image is built with:
 
 | Property | Value |
 |---|---|
-| Base image | `alpine:3.21` (pinned) |
-| User | Non-root (`nixcopy`, UID assigned by Alpine) |
+| Base image | `gcr.io/distroless/static-debian12:nonroot` |
+| User | `nonroot` (UID 65532) — set by the distroless tag, no `adduser` required |
+| Shell | None — no `sh`, no `bash`, minimal CVE surface |
+| CA certificates | Included in distroless base |
 | Architectures | `linux/amd64`, `linux/arm64` |
 | OCI labels | `version`, `revision` (git SHA), `created` (ISO-8601) |
+| Binary | Stripped (`-ldflags="-s -w" -trimpath`) — ~30% smaller than dev build |
+
+> **Debugging**: Use the `:debug` tag (`gcr.io/distroless/static-debian12:debug`) locally to get a busybox shell inside the container. Never use `:debug` in production.
 
 ### OCI Labels (Traceability)
 
@@ -1079,6 +1094,7 @@ transfer:
 - [x] Resume capability สำหรับการถ่ายโอนที่ถูกขัดจอน (Local & SFTP)
 - [x] Standard application logging (standard-app-log v1.0) — structured JSON to stdout, K8s/Airflow ready
 - [x] **KPO Golden Image** — non-root user, pinned base image, correct exit codes, `NIXCOPY_*` env-var config, multi-arch (`linux/amd64` + `linux/arm64`), OCI labels
+- [x] **Distroless runtime image** — `gcr.io/distroless/static-debian12:nonroot`; no shell, no apk CVEs, CA certs included, UID 65532, stripped binary (`-s -w -trimpath`)
 - [x] **S3 multipart upload** — AWS SDK v2 `transfermanager`, dynamic part sizing, 5 concurrent parts, supports up to ~5 TiB
 - [x] **Azure Blob parallel block upload** — dynamic `BlockSize` + `Concurrency=5`, supports up to ~190 TiB
 - [x] **Idempotent retry** — `--skip-existing` / `NIXCOPY_SKIP_EXISTING` skips files where destination size matches source

@@ -118,8 +118,14 @@ docker-buildx: ## Build and push multi-arch image (linux/amd64 + linux/arm64) �
 		--push \
 		.
 
-docker-run: ## Run Docker container (mounts config.yaml if present)
-	docker run --rm -v $(PWD)/config.yaml:/app/config.yaml $(IMAGE_NAME):latest
+docker-run: ## Run Docker container using NIXCOPY_* env vars (no config file needed)
+	docker run --rm \
+		-e NIXCOPY_SOURCE_TYPE \
+		-e NIXCOPY_DEST_TYPE \
+		$(IMAGE_NAME):latest
+
+docker-run-config: ## Run Docker container mounting a local config.yaml
+	docker run --rm -v $(PWD)/config.yaml:/config.yaml $(IMAGE_NAME):latest transfer --config /config.yaml
 
 example-sftp-s3: ## รันตัวอย่าง SFTP to S3
 	$(BINARY_PATH) transfer -c examples/sftp-to-s3.yaml -s /remote/file.txt -d backup/file.txt

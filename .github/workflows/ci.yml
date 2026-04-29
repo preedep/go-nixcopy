@@ -131,3 +131,15 @@ jobs:
 
       - name: Verify binary runs
         run: ./bin/nixcopy --help
+
+      - name: Build Docker image (distroless smoke test)
+        run: |
+          docker build \
+            --build-arg VERSION=ci-test \
+            --build-arg GIT_COMMIT=${{ github.sha }} \
+            --build-arg BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+            -t go-nixcopy:ci-test \
+            .
+
+      - name: Verify container runs
+        run: docker run --rm go-nixcopy:ci-test --help
