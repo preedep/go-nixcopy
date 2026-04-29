@@ -128,16 +128,197 @@ func TestApplyCliFlags_SkipExisting_False_DoesNotOverrideConfigFile(t *testing.T
 	}
 }
 
-// resetTransferFlags zeros out all transfer-related package-level flag vars so
-// tests don't bleed state into each other.
+// resetTransferFlags zeros out all package-level flag vars so tests don't bleed state into each other.
 func resetTransferFlags() {
+	sourceType = ""
+	sourceHost = ""
+	sourcePort = 0
+	sourceUsername = ""
+	sourcePassword = ""
+	sourcePrivateKey = ""
+	sourceRegion = ""
+	sourceBucket = ""
+	sourceAccessKey = ""
+	sourceSecretKey = ""
+	sourceAuthType = ""
+	sourceAccountName = ""
+	sourceAccountKey = ""
+	sourceContainer = ""
+
+	destType = ""
+	destHost = ""
+	destPort = 0
+	destUsername = ""
+	destPassword = ""
+	destPrivateKey = ""
+	destRegion = ""
+	destBucket = ""
+	destAccessKey = ""
+	destSecretKey = ""
+	destAuthType = ""
+	destAccountName = ""
+	destAccountKey = ""
+	destContainer = ""
+
 	bufferSize = 0
 	concurrentFiles = 0
 	retryAttempts = 0
 	enableResume = false
 	skipExisting = false
-	sourceType = ""
-	destType = ""
+	compress = ""
+}
+
+func TestApplyCliFlags_SourceFTPS(t *testing.T) {
+	resetTransferFlags()
+	sourceType = "ftps"
+	sourceHost = "ftps.example.com"
+	sourcePort = 990
+	sourceUsername = "ftpuser"
+	sourcePassword = "ftppass"
+
+	cfg := config.DefaultConfig()
+	applyCliFlags(cfg)
+
+	if cfg.Source.Type != config.StorageTypeFTPS {
+		t.Errorf("Source.Type = %v, want %v", cfg.Source.Type, config.StorageTypeFTPS)
+	}
+	if cfg.Source.FTPS == nil {
+		t.Fatal("Source.FTPS should not be nil")
+	}
+	if cfg.Source.FTPS.Host != "ftps.example.com" {
+		t.Errorf("FTPS.Host = %q, want ftps.example.com", cfg.Source.FTPS.Host)
+	}
+	if cfg.Source.FTPS.Port != 990 {
+		t.Errorf("FTPS.Port = %d, want 990", cfg.Source.FTPS.Port)
+	}
+	if cfg.Source.FTPS.Username != "ftpuser" {
+		t.Errorf("FTPS.Username = %q, want ftpuser", cfg.Source.FTPS.Username)
+	}
+	if cfg.Source.FTPS.Password != "ftppass" {
+		t.Errorf("FTPS.Password = %q, want ftppass", cfg.Source.FTPS.Password)
+	}
+}
+
+func TestApplyCliFlags_SourceBlob(t *testing.T) {
+	resetTransferFlags()
+	sourceType = "blob"
+	sourceAccountName = "srcaccount"
+	sourceContainer = "srccontainer"
+	sourceAuthType = "shared_key"
+	sourceAccountKey = "srcaccountkey=="
+
+	cfg := config.DefaultConfig()
+	applyCliFlags(cfg)
+
+	if cfg.Source.Type != config.StorageTypeBlobStorage {
+		t.Errorf("Source.Type = %v, want %v", cfg.Source.Type, config.StorageTypeBlobStorage)
+	}
+	if cfg.Source.BlobStorage == nil {
+		t.Fatal("Source.BlobStorage should not be nil")
+	}
+	if cfg.Source.BlobStorage.AccountName != "srcaccount" {
+		t.Errorf("BlobStorage.AccountName = %q, want srcaccount", cfg.Source.BlobStorage.AccountName)
+	}
+	if cfg.Source.BlobStorage.ContainerName != "srccontainer" {
+		t.Errorf("BlobStorage.ContainerName = %q, want srccontainer", cfg.Source.BlobStorage.ContainerName)
+	}
+	if cfg.Source.BlobStorage.AccountKey != "srcaccountkey==" {
+		t.Errorf("BlobStorage.AccountKey = %q, want srcaccountkey==", cfg.Source.BlobStorage.AccountKey)
+	}
+}
+
+func TestApplyCliFlags_DestSFTP(t *testing.T) {
+	resetTransferFlags()
+	destType = "sftp"
+	destHost = "dest.sftp.example.com"
+	destPort = 22
+	destUsername = "destuser"
+	destPassword = "destpass"
+
+	cfg := config.DefaultConfig()
+	applyCliFlags(cfg)
+
+	if cfg.Destination.Type != config.StorageTypeSFTP {
+		t.Errorf("Destination.Type = %v, want %v", cfg.Destination.Type, config.StorageTypeSFTP)
+	}
+	if cfg.Destination.SFTP == nil {
+		t.Fatal("Destination.SFTP should not be nil")
+	}
+	if cfg.Destination.SFTP.Host != "dest.sftp.example.com" {
+		t.Errorf("SFTP.Host = %q, want dest.sftp.example.com", cfg.Destination.SFTP.Host)
+	}
+	if cfg.Destination.SFTP.Port != 22 {
+		t.Errorf("SFTP.Port = %d, want 22", cfg.Destination.SFTP.Port)
+	}
+	if cfg.Destination.SFTP.Username != "destuser" {
+		t.Errorf("SFTP.Username = %q, want destuser", cfg.Destination.SFTP.Username)
+	}
+	if cfg.Destination.SFTP.Password != "destpass" {
+		t.Errorf("SFTP.Password = %q, want destpass", cfg.Destination.SFTP.Password)
+	}
+}
+
+func TestApplyCliFlags_DestBlob(t *testing.T) {
+	resetTransferFlags()
+	destType = "blob"
+	destAccountName = "destaccount"
+	destContainer = "destcontainer"
+	destAuthType = "managed_identity"
+
+	cfg := config.DefaultConfig()
+	applyCliFlags(cfg)
+
+	if cfg.Destination.Type != config.StorageTypeBlobStorage {
+		t.Errorf("Destination.Type = %v, want %v", cfg.Destination.Type, config.StorageTypeBlobStorage)
+	}
+	if cfg.Destination.BlobStorage == nil {
+		t.Fatal("Destination.BlobStorage should not be nil")
+	}
+	if cfg.Destination.BlobStorage.AccountName != "destaccount" {
+		t.Errorf("BlobStorage.AccountName = %q, want destaccount", cfg.Destination.BlobStorage.AccountName)
+	}
+	if cfg.Destination.BlobStorage.ContainerName != "destcontainer" {
+		t.Errorf("BlobStorage.ContainerName = %q, want destcontainer", cfg.Destination.BlobStorage.ContainerName)
+	}
+	if cfg.Destination.BlobStorage.AuthType != config.BlobAuthManagedIdentity {
+		t.Errorf("BlobStorage.AuthType = %q, want %q", cfg.Destination.BlobStorage.AuthType, config.BlobAuthManagedIdentity)
+	}
+}
+
+func TestApplyCliFlags_Compress(t *testing.T) {
+	resetTransferFlags()
+	compress = "gzip"
+
+	cfg := config.DefaultConfig()
+	applyCliFlags(cfg)
+
+	if cfg.Transfer.Compression != "gzip" {
+		t.Errorf("Transfer.Compression = %q, want gzip", cfg.Transfer.Compression)
+	}
+}
+
+func TestCliFlag_WinsOver_EnvVar(t *testing.T) {
+	// Verify precedence: CLI flags must win over env vars for the same field.
+	// The call order in runTransfer is LoadFromEnv then applyCliFlags.
+	t.Setenv("NIXCOPY_SOURCE_TYPE", "sftp")
+	t.Setenv("NIXCOPY_SOURCE_HOST", "env-host")
+
+	resetTransferFlags()
+	sourceType = "sftp"
+	sourceHost = "cli-host"
+	sourcePort = 22
+	sourceUsername = "user"
+
+	cfg := config.DefaultConfig()
+	config.LoadFromEnv(cfg)
+	applyCliFlags(cfg)
+
+	if cfg.Source.SFTP == nil {
+		t.Fatal("Source.SFTP should not be nil")
+	}
+	if cfg.Source.SFTP.Host != "cli-host" {
+		t.Errorf("Source.SFTP.Host = %q, want cli-host (CLI flag must win over env var)", cfg.Source.SFTP.Host)
+	}
 }
 
 func TestApplyCliFlags_Defaults(t *testing.T) {
