@@ -324,7 +324,7 @@ func TestLocalStorage_Stat_NonexistentFile(t *testing.T) {
 
 // ---- CreateDirectory ----
 
-func TestLocalStorage_CreateDirectory(t *testing.T) {
+func TestLocalStorage_CreateDirectory_Nested(t *testing.T) {
 	base := t.TempDir()
 	s := newLocal(t, base)
 	if err := s.CreateDirectory(ctx(), "deep/nested/dir"); err != nil {
@@ -405,7 +405,7 @@ func TestLocalStorage_ReadFrom_WithOffset(t *testing.T) {
 
 // ---- AppendWrite (Resumer interface) ----
 
-func TestLocalStorage_AppendWrite(t *testing.T) {
+func TestLocalStorage_AppendWrite_Success(t *testing.T) {
 	base := t.TempDir()
 	// Create a file with initial content
 	path := filepath.Join(base, "resume.txt")
