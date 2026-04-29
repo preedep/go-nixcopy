@@ -36,10 +36,10 @@ import (
 // TransferUseCase is safe for concurrent use. Multiple goroutines can call
 // Transfer() or TransferBatch() simultaneously on the same instance.
 type TransferUseCase struct {
-	source repository.StorageReader  // Source storage for reading files
-	dest   repository.Storage        // Destination storage (read back needed for checksum verification)
-	config *entity.TransferConfig    // Transfer configuration (buffer size, retries, etc.)
-	logger *applog.StandardLogger    // Structured logger for operational visibility
+	source repository.StorageReader // Source storage for reading files
+	dest   repository.Storage       // Destination storage (read back needed for checksum verification)
+	config *entity.TransferConfig   // Transfer configuration (buffer size, retries, etc.)
+	logger *applog.StandardLogger   // Structured logger for operational visibility
 }
 
 // NewTransferUseCase creates a new TransferUseCase instance.

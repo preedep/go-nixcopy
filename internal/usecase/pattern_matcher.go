@@ -35,8 +35,8 @@ import (
 // PatternMatcher is safe for concurrent use. Multiple goroutines can call
 // MatchFiles() simultaneously on the same instance.
 type PatternMatcher struct {
-	storage repository.StorageReader  // Storage reader for listing and accessing files
-	logger  *applog.StandardLogger    // Structured logger for debugging pattern matching
+	storage repository.StorageReader // Storage reader for listing and accessing files
+	logger  *applog.StandardLogger   // Structured logger for debugging pattern matching
 }
 
 // NewPatternMatcher creates a new PatternMatcher instance.

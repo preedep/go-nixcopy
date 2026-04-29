@@ -31,13 +31,13 @@ func TestTransferSummary_JSONFields(t *testing.T) {
 	}
 
 	checks := map[string]any{
-		"event":             "transfer_summary",
-		"total_files":       float64(3),
-		"successful":        float64(2),
-		"skipped":           float64(1),
-		"failed":            float64(0),
-		"bytes_transferred": float64(1048576),
-		"duration_ms":       float64(500),
+		"event":              "transfer_summary",
+		"total_files":        float64(3),
+		"successful":         float64(2),
+		"skipped":            float64(1),
+		"failed":             float64(0),
+		"bytes_transferred":  float64(1048576),
+		"duration_ms":        float64(500),
 		"average_speed_mbps": float64(2.0),
 	}
 	for key, want := range checks {
