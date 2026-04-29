@@ -1,0 +1,138 @@
+version: 2
+
+project_name: nixcopy
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: nixcopy
+    main: ./cmd/nixcopy/main.go
+    binary: nixcopy
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.Version={{.Version}}
+      - -X main.BuildTime={{.Date}}
+      - -X main.GitCommit={{.ShortCommit}}
+    goos:
+      - linux
+      - darwin
+      - windows
+      - freebsd
+    goarch:
+      - amd64
+      - arm64
+      - "386"
+    ignore:
+      - goos: darwin
+        goarch: "386"
+      - goos: windows
+        goarch: arm64
+      - goos: freebsd
+        goarch: arm64
+      - goos: freebsd
+        goarch: "386"
+
+archives:
+  - id: nixcopy
+    formats: [tar.gz]
+    name_template: "nixcopy_{{.Version}}_{{.Os}}_{{.Arch}}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{incpatch .Version}}-dev"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "Merge pull request"
+      - "Merge branch"
+  groups:
+    - title: Features
+      regexp: "^feat"
+      order: 0
+    - title: Bug Fixes
+      regexp: "^fix"
+      order: 1
+    - title: Others
+      order: 999
+
+# Homebrew tap — requires HOMEBREW_TAP_TOKEN secret (fine-grained PAT with
+# contents:write on the preedep/homebrew-tap repo).
+brews:
+  - name: nixcopy
+    repository:
+      owner: preedep
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: https://github.com/preedep/go-nixcopy
+    description: "Fast universal file-transfer CLI — SFTP, FTPS, Azure Blob, AWS S3, local disk"
+    license: MIT
+    install: |
+      bin.install "nixcopy"
+    test: |
+      system "#{bin}/nixcopy --version"
+
+# .deb and .rpm packages
+nfpms:
+  - id: nixcopy
+    package_name: nixcopy
+    homepage: https://github.com/preedep/go-nixcopy
+    description: "Fast universal file-transfer CLI — SFTP, FTPS, Azure Blob, AWS S3, local disk"
+    maintainer: "Preedee <nickmsft@mac.com>"
+    license: MIT
+    formats:
+      - deb
+      - rpm
+    bindir: /usr/bin
+    contents:
+      - src: ./LICENSE
+        dst: /usr/share/doc/nixcopy/copyright
+
+# Docker — multi-arch via buildx
+dockers:
+  - image_templates:
+      - "nickmsft/gonixcopy:{{.Tag}}-amd64"
+    dockerfile: Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--build-arg=VERSION={{.Version}}"
+      - "--build-arg=GIT_COMMIT={{.ShortCommit}}"
+      - "--build-arg=BUILD_DATE={{.Date}}"
+  - image_templates:
+      - "nickmsft/gonixcopy:{{.Tag}}-arm64"
+    dockerfile: Dockerfile
+    use: buildx
+    goarch: arm64
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--build-arg=VERSION={{.Version}}"
+      - "--build-arg=GIT_COMMIT={{.ShortCommit}}"
+      - "--build-arg=BUILD_DATE={{.Date}}"
+
+docker_manifests:
+  - name_template: "nickmsft/gonixcopy:{{.Tag}}"
+    image_templates:
+      - "nickmsft/gonixcopy:{{.Tag}}-amd64"
+      - "nickmsft/gonixcopy:{{.Tag}}-arm64"
+  - name_template: "nickmsft/gonixcopy:latest"
+    image_templates:
+      - "nickmsft/gonixcopy:{{.Tag}}-amd64"
+      - "nickmsft/gonixcopy:{{.Tag}}-arm64"
