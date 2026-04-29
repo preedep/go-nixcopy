@@ -211,9 +211,9 @@ func (s *S3Storage) Stat(ctx context.Context, path string) (*entity.FileInfo, er
 }
 
 const (
-	s3MinPartSize     = int64(5 * 1024 * 1024)   // 5 MB — S3 hard minimum per part
-	s3DefaultPartSize = int64(16 * 1024 * 1024)  // 16 MB — good default for most file sizes
-	s3MaxParts        = int64(10000)              // S3 limit: max 10,000 parts per upload
+	s3MinPartSize       = int64(5 * 1024 * 1024)  // 5 MB — S3 hard minimum per part
+	s3DefaultPartSize   = int64(16 * 1024 * 1024) // 16 MB — good default for most file sizes
+	s3MaxParts          = int64(10000)            // S3 limit: max 10,000 parts per upload
 	s3UploadConcurrency = 5                       // concurrent part uploads within one file
 )
 

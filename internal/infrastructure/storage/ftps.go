@@ -107,7 +107,7 @@ func (f *FTPSStorage) Read(ctx context.Context, path string) (io.ReadCloser, int
 		return nil, 0, fmt.Errorf("failed to retrieve file: %w", err)
 	}
 
-	return resp, int64(size), nil
+	return resp, size, nil
 }
 
 func (f *FTPSStorage) Stat(ctx context.Context, path string) (*entity.FileInfo, error) {
@@ -128,7 +128,7 @@ func (f *FTPSStorage) Stat(ctx context.Context, path string) (*entity.FileInfo, 
 	return &entity.FileInfo{
 		Path:         path,
 		Name:         filepath.Base(path),
-		Size:         int64(size),
+		Size:         size,
 		ModifiedTime: modTime,
 		IsDirectory:  false,
 	}, nil

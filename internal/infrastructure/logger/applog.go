@@ -88,11 +88,17 @@ type StandardLogger struct {
 // StandardLoggerOption is a functional option for NewStandardLogger.
 type StandardLoggerOption func(*StandardLogger)
 
-func WithAppID(id string) StandardLoggerOption     { return func(l *StandardLogger) { l.appID = id } }
-func WithAppVersion(v string) StandardLoggerOption { return func(l *StandardLogger) { l.appVersion = v } }
-func WithServiceID(id string) StandardLoggerOption { return func(l *StandardLogger) { l.serviceID = id } }
-func WithPodName(n string) StandardLoggerOption    { return func(l *StandardLogger) { l.servicePodName = n } }
-func WithOutput(w io.Writer) StandardLoggerOption  { return func(l *StandardLogger) { l.output = w } }
+func WithAppID(id string) StandardLoggerOption { return func(l *StandardLogger) { l.appID = id } }
+func WithAppVersion(v string) StandardLoggerOption {
+	return func(l *StandardLogger) { l.appVersion = v }
+}
+func WithServiceID(id string) StandardLoggerOption {
+	return func(l *StandardLogger) { l.serviceID = id }
+}
+func WithPodName(n string) StandardLoggerOption {
+	return func(l *StandardLogger) { l.servicePodName = n }
+}
+func WithOutput(w io.Writer) StandardLoggerOption { return func(l *StandardLogger) { l.output = w } }
 
 // NewStandardLogger creates a StandardLogger that writes JSON to stdout.
 //

@@ -205,8 +205,8 @@ func (b *BlobStorage) Stat(ctx context.Context, path string) (*entity.FileInfo, 
 const (
 	blobMinBlockSize      = int64(1 * 1024 * 1024)  // 1 MiB — Azure SDK minimum
 	blobDefaultBlockSize  = int64(16 * 1024 * 1024) // 16 MiB — good default for most blob sizes
-	blobMaxBlocks         = int64(50000)             // Azure limit: max 50,000 blocks per blob
-	blobUploadConcurrency = 5                        // concurrent block uploads within one blob
+	blobMaxBlocks         = int64(50000)            // Azure limit: max 50,000 blocks per blob
+	blobUploadConcurrency = 5                       // concurrent block uploads within one blob
 )
 
 // blobBlockSizeFor returns the optimal block size for a blob of the given size.

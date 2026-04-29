@@ -162,9 +162,7 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 	config.LoadFromEnv(&cfg)
 
 	// Override config with CLI flags
-	if err := applyCliFlags(&cfg); err != nil {
-		return fmt.Errorf("failed to apply CLI flags: %w", err)
-	}
+	applyCliFlags(&cfg)
 
 	// Validate configuration
 	if err := validateConfig(&cfg); err != nil {
