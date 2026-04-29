@@ -1,5 +1,7 @@
 # go-nixcopy
 
+🇬🇧 English | [🇹🇭 ภาษาไทย](README.th.md)
+
 Fast universal file-transfer CLI — move data between SFTP, FTPS, Azure Blob, AWS S3, and local disk with a single command.
 
 [![CI](https://github.com/preedep/go-nixcopy/actions/workflows/ci.yml/badge.svg)](https://github.com/preedep/go-nixcopy/actions/workflows/ci.yml)
