@@ -136,6 +136,17 @@ func TestLoadFromEnv_SkipExisting(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnv_BandwidthLimit(t *testing.T) {
+	t.Setenv("NIXCOPY_BANDWIDTH_LIMIT", "10485760") // 10 MB/s in raw bytes
+
+	cfg := DefaultConfig()
+	LoadFromEnv(cfg)
+
+	if cfg.Transfer.BandwidthLimit != 10485760 {
+		t.Errorf("Transfer.BandwidthLimit = %d, want 10485760", cfg.Transfer.BandwidthLimit)
+	}
+}
+
 func TestLoadFromEnv_EmptyVarsNoChange(t *testing.T) {
 	cfg := DefaultConfig()
 	before := cfg.Transfer.BufferSize

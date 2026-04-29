@@ -127,9 +127,10 @@ type TransferConfig struct {
 	RetryAttempts   int           `yaml:"retry_attempts" json:"retry_attempts"`
 	RetryDelay      time.Duration `yaml:"retry_delay" json:"retry_delay"`
 	Timeout         time.Duration `yaml:"timeout" json:"timeout"`
-	VerifyChecksum  bool          `yaml:"verify_checksum" json:"verify_checksum"`
-	EnableResume    bool          `yaml:"enable_resume" json:"enable_resume"`
-	SkipExisting    bool          `yaml:"skip_existing" json:"skip_existing"`
+	VerifyChecksum bool  `yaml:"verify_checksum" json:"verify_checksum"`
+	EnableResume   bool  `yaml:"enable_resume" json:"enable_resume"`
+	SkipExisting   bool  `yaml:"skip_existing" json:"skip_existing"`
+	BandwidthLimit int64 `yaml:"bandwidth_limit" json:"bandwidth_limit"` // bytes/sec; 0 = unlimited
 }
 
 type LoggingConfig struct {

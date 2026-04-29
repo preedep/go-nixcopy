@@ -179,6 +179,7 @@ func applyTransferEnv(t *TransferConfig) {
 	setEnvBool(&t.VerifyChecksum, "NIXCOPY_VERIFY_CHECKSUM")
 	setEnvBool(&t.EnableResume, "NIXCOPY_ENABLE_RESUME")
 	setEnvBool(&t.SkipExisting, "NIXCOPY_SKIP_EXISTING")
+	setEnvInt64(&t.BandwidthLimit, "NIXCOPY_BANDWIDTH_LIMIT")
 }
 
 func setEnvString(dst *string, key string) {
@@ -199,6 +200,14 @@ func setEnvBool(dst *bool, key string) {
 	if v := os.Getenv(key); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
 			*dst = b
+		}
+	}
+}
+
+func setEnvInt64(dst *int64, key string) {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			*dst = n
 		}
 	}
 }

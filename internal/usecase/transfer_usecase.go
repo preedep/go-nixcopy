@@ -249,6 +249,10 @@ func (t *TransferUseCase) Transfer(
 			)
 		}
 
+		if t.config.BandwidthLimit > 0 {
+			streamReader = newThrottledReader(ctx, streamReader, t.config.BandwidthLimit)
+		}
+
 		// Wrap reader with progress tracking.
 		// transferred starts at resumeOffset so percentage display is correct.
 		// Speed is computed from current-session bytes only (see progressReader.Read).
