@@ -53,6 +53,7 @@ docker pull nickmsft/gonixcopy:latest
 - **Resume** — continue interrupted transfers from byte offset (Local & SFTP)
 - **Checksum verification** — SHA-256 end-to-end integrity check (`--verify-checksum`)
 - **Skip existing** — idempotent retry; skip if destination already has the same size (`--skip-existing`)
+- **FTPS explicit & implicit TLS** — `--source-tls-mode explicit` (STARTTLS, port 21) or `implicit` (TLS-first, port 990); validated at startup, configurable via CLI flag or `NIXCOPY_SOURCE/DEST_TLS_MODE` env var
 - **Structured JSON logging** — [standard-app-log v1.0](https://github.com/preedep/standard-app-log) to stdout, K8s / Airflow ready
 - **Config-free operation** — all settings injectable via `NIXCOPY_*` env vars; no YAML file needed in containers
 - **Distroless Docker image** — non-root, no shell, multi-arch (`linux/amd64` + `linux/arm64`)
@@ -141,6 +142,46 @@ transfer:
   bandwidth_limit: 0       # bytes/sec per file; 0 = unlimited
   skip_existing: false
   enable_resume: false
+```
+
+**FTPS example** (enterprise FTP servers often require explicit TLS on port 21):
+
+```yaml
+source:
+  type: ftps
+  ftps:
+    host: ftps.enterprise.com
+    port: 21
+    username: ${FTPS_USER}
+    password: ${FTPS_PASSWORD}
+    tls_mode: explicit      # explicit (STARTTLS) | implicit (TLS-first, default)
+    skip_verify: false      # set true only in dev/test
+
+destination:
+  type: s3
+  s3:
+    region: ap-southeast-1
+    bucket: landing-zone
+    auth_type: iam_role
+```
+
+Or via CLI flags / env vars without a config file:
+
+```bash
+nixcopy transfer \
+  --source-type ftps --source-host ftps.enterprise.com --source-port 21 \
+  --source-username user --source-password pass \
+  --source-tls-mode explicit \
+  --dest-type s3 --dest-region ap-southeast-1 --dest-bucket landing-zone \
+  --dest-auth-type iam_role \
+  -s "/data/exports/*.csv" -d processed/
+
+# Or via env vars (useful in containers / CI)
+export NIXCOPY_SOURCE_TYPE=ftps
+export NIXCOPY_SOURCE_HOST=ftps.enterprise.com
+export NIXCOPY_SOURCE_TLS_MODE=explicit
+export NIXCOPY_SOURCE_USERNAME=user
+export NIXCOPY_SOURCE_PASSWORD=secret
 ```
 
 **Config precedence:** `CLI flags > NIXCOPY_* env vars > config file > defaults`

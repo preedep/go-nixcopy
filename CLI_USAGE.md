@@ -86,7 +86,8 @@ nixcopy transfer -c config.yaml \
 | `--source-port` | Server port | `--source-port 22` |
 | `--source-username` | Username | `--source-username user` |
 | `--source-password` | Password | `--source-password pass` |
-| `--source-private-key` | Private key path | `--source-private-key ~/.ssh/id_rsa` |
+| `--source-private-key` | Private key path (SFTP only) | `--source-private-key ~/.ssh/id_rsa` |
+| `--source-tls-mode` | FTPS TLS mode: `explicit` (STARTTLS, port 21) or `implicit` (TLS-first, port 990) | `--source-tls-mode explicit` |
 
 #### S3 Source Flags
 
@@ -122,7 +123,8 @@ nixcopy transfer -c config.yaml \
 | `--dest-port` | Server port | `--dest-port 22` |
 | `--dest-username` | Username | `--dest-username user` |
 | `--dest-password` | Password | `--dest-password pass` |
-| `--dest-private-key` | Private key path | `--dest-private-key ~/.ssh/id_rsa` |
+| `--dest-private-key` | Private key path (SFTP only) | `--dest-private-key ~/.ssh/id_rsa` |
+| `--dest-tls-mode` | FTPS TLS mode: `explicit` (STARTTLS, port 21) or `implicit` (TLS-first, port 990) | `--dest-tls-mode implicit` |
 
 #### S3 Destination Flags
 
