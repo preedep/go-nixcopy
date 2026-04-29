@@ -68,8 +68,8 @@ func BenchmarkPatternMatcher_Flat(b *testing.B) {
 // simulated multi-level directory tree, isolating the recursion and match overhead.
 func BenchmarkPatternMatcher_Recursive(b *testing.B) {
 	for _, tc := range []struct {
-		dirs         int
-		filesPerDir  int
+		dirs        int
+		filesPerDir int
 	}{
 		{10, 100},
 		{50, 100},
