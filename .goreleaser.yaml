@@ -106,14 +106,17 @@ nfpms:
         dst: /usr/share/doc/nixcopy/copyright
 
 # Fury.io — push .deb and .rpm to hosted APT/YUM repository.
-# Requires FURY_TOKEN secret (push token from fury.io/dashboard).
+# Requires FURY_TOKEN and FURY_ACCOUNT secrets.
+# FURY_TOKEN  = push token from fury.io/dashboard → Account → Tokens
+# FURY_ACCOUNT = your fury.io account username (may differ from GitHub username)
 publishers:
   - name: fury
     ids: [nixcopy-pkg]
     dir: "{{ dir .ArtifactPath }}"
     cmd: >-
-      curl -sf -F package=@{{ .ArtifactName }}
-      https://{{ .Env.FURY_TOKEN }}@push.fury.io/preedep/
+      curl -f -w "\n→ HTTP %{http_code}\n"
+      -F package=@{{ .ArtifactName }}
+      https://{{ .Env.FURY_TOKEN }}@push.fury.io/{{ .Env.FURY_ACCOUNT }}/
 
 # Docker — multi-arch via buildx
 dockers:
