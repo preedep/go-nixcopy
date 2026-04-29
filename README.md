@@ -13,6 +13,7 @@ Fast universal file-transfer CLI — move data between SFTP, FTPS, Azure Blob, A
 - [Features](#features)
 - [Architecture](#architecture)
 - [How to Use](#how-to-use)
+- [Roadmap](#roadmap)
 
 ---
 
@@ -178,6 +179,7 @@ A JSON summary goes to **stdout** on completion (machine-readable):
 
 | Topic | File |
 |---|---|
+| Quick start & troubleshooting & performance tips | [QUICKSTART.md](QUICKSTART.md) |
 | All CLI flags & `NIXCOPY_*` env vars | [CLI_USAGE.md](CLI_USAGE.md) |
 | Authentication setup (AWS, Azure) | [AUTHENTICATION.md](AUTHENTICATION.md) |
 | Parallel transfer & wildcard patterns | [PARALLEL_TRANSFER.md](PARALLEL_TRANSFER.md) |
@@ -185,6 +187,30 @@ A JSON summary goes to **stdout** on completion (machine-readable):
 | Release build flags & binary sizes | [BUILD.md](BUILD.md) |
 | Deployment environments (EKS, AKS, on-prem) | [ENVIRONMENT_GUIDE.md](ENVIRONMENT_GUIDE.md) |
 | Contributing a new storage backend | [CONTRIBUTING.md](CONTRIBUTING.md) |
+
+---
+
+## Roadmap
+
+### Done
+- [x] Local, SFTP, FTPS, Azure Blob, AWS S3 / MinIO support
+- [x] Parallel transfer & wildcard patterns (`*.pdf`, `**/*.log`)
+- [x] SHA-256 checksum verification
+- [x] Resume interrupted transfers (Local & SFTP)
+- [x] Bandwidth limiting per file
+- [x] On-the-fly gzip / zstd compression
+- [x] Idempotent retry (`--skip-existing`)
+- [x] Structured JSON logging (standard-app-log v1.0)
+- [x] Distroless Docker image, multi-arch (amd64 + arm64), config-free KPO mode
+- [x] S3 multipart upload (up to ~5 TiB) & Azure Blob parallel block upload (up to ~190 TiB)
+- [x] GitHub Actions CI with integration tests (MinIO + SFTP)
+
+### Planned
+- [ ] Google Cloud Storage support
+- [ ] Web UI for transfer management
+- [ ] Scheduled transfers
+- [ ] Email / webhook notifications
+- [ ] Incremental backup
 
 ---
 
