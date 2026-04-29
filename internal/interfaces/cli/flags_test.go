@@ -106,6 +106,61 @@ func TestApplyCliFlags_Transfer(t *testing.T) {
 	}
 }
 
+func TestApplyCliFlags_SkipExisting(t *testing.T) {
+	resetTransferFlags()
+	skipExisting = true
+
+	cfg := config.DefaultConfig()
+	if err := applyCliFlags(cfg); err != nil {
+		t.Fatalf("applyCliFlags() error = %v", err)
+	}
+
+	if !cfg.Transfer.SkipExisting {
+		t.Error("Transfer.SkipExisting = false, want true when --skip-existing is set")
+	}
+}
+
+func TestApplyCliFlags_EnableResume(t *testing.T) {
+	resetTransferFlags()
+	enableResume = true
+
+	cfg := config.DefaultConfig()
+	if err := applyCliFlags(cfg); err != nil {
+		t.Fatalf("applyCliFlags() error = %v", err)
+	}
+
+	if !cfg.Transfer.EnableResume {
+		t.Error("Transfer.EnableResume = false, want true when --resume is set")
+	}
+}
+
+func TestApplyCliFlags_SkipExisting_False_DoesNotOverrideConfigFile(t *testing.T) {
+	resetTransferFlags()
+	skipExisting = false // flag not set
+
+	cfg := config.DefaultConfig()
+	cfg.Transfer.SkipExisting = true // loaded from config file
+	if err := applyCliFlags(cfg); err != nil {
+		t.Fatalf("applyCliFlags() error = %v", err)
+	}
+
+	if !cfg.Transfer.SkipExisting {
+		t.Error("Transfer.SkipExisting was cleared; false flag should not override a config-file true value")
+	}
+}
+
+// resetTransferFlags zeros out all transfer-related package-level flag vars so
+// tests don't bleed state into each other.
+func resetTransferFlags() {
+	bufferSize = 0
+	concurrentFiles = 0
+	retryAttempts = 0
+	enableResume = false
+	skipExisting = false
+	sourceType = ""
+	destType = ""
+}
+
 func TestApplyCliFlags_Defaults(t *testing.T) {
 	// Reset all flags to empty
 	sourceType = ""

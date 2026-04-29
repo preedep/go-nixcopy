@@ -125,6 +125,17 @@ func TestLoadFromEnv_TransferSettings(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnv_SkipExisting(t *testing.T) {
+	t.Setenv("NIXCOPY_SKIP_EXISTING", "true")
+
+	cfg := DefaultConfig()
+	LoadFromEnv(cfg)
+
+	if !cfg.Transfer.SkipExisting {
+		t.Error("Transfer.SkipExisting = false, want true (NIXCOPY_SKIP_EXISTING=true)")
+	}
+}
+
 func TestLoadFromEnv_EmptyVarsNoChange(t *testing.T) {
 	cfg := DefaultConfig()
 	before := cfg.Transfer.BufferSize
