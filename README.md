@@ -308,7 +308,7 @@ nixcopy list --config config.yaml --path /remote/path --source=false
 
 ### 🎯 การใช้ CLI Parameters
 
-go-nixcopy รองรับการส่ง parameters ผ่าน command line ได้ 3 แบบ:
+go-nixcopy รองรับการส่ง parameters ได้ 4 แบบ:
 
 1. **ใช้ Config File อย่างเดียว** (แนะนำสำหรับ production)
    ```bash
@@ -328,7 +328,25 @@ go-nixcopy รองรับการส่ง parameters ผ่าน command 
      -s /source/file -d /dest/file
    ```
 
-📖 **อ่านเพิ่มเติม:** [CLI_USAGE.md](CLI_USAGE.md) - คู่มือการใช้ CLI parameters แบบละเอียด
+4. **ใช้ NIXCOPY_* Environment Variables อย่างเดียว** (แนะนำสำหรับ Kubernetes / KPO)
+   ```bash
+   export NIXCOPY_SOURCE_TYPE=sftp
+   export NIXCOPY_SOURCE_HOST=sftp.example.com
+   export NIXCOPY_SOURCE_USERNAME=user
+   export NIXCOPY_SOURCE_PASSWORD=secret
+   export NIXCOPY_DEST_TYPE=s3
+   export NIXCOPY_DEST_REGION=ap-southeast-1
+   export NIXCOPY_DEST_BUCKET=my-bucket
+   export NIXCOPY_DEST_AUTH_TYPE=web_identity
+   nixcopy transfer -s /data/file.csv -d processed/file.csv
+   ```
+
+**ลำดับความสำคัญ (Precedence):**
+```
+CLI Flags  >  NIXCOPY_* Env Vars  >  Config File  >  Defaults
+```
+
+📖 **อ่านเพิ่มเติม:** [CLI_USAGE.md](CLI_USAGE.md) - คู่มือการใช้ CLI parameters แบบละเอียด พร้อมตาราง NIXCOPY_* env vars ครบทุกตัว
 
 ### 🚀 Parallel Transfer & Wildcard Patterns
 
@@ -746,25 +764,118 @@ These env vars are read at startup and embedded in every log line:
 
 ### Kubernetes / Airflow KubernetesPodOperator Usage
 
+The golden image supports **config-file-free** operation — all storage credentials are injected via Kubernetes Secrets as `NIXCOPY_*` environment variables. No config file mount needed.
+
 ```python
+from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
+from kubernetes.client import models as k8s
+
 KubernetesPodOperator(
     task_id="transfer_sftp_to_s3",
-    image="your-registry/nixcopy:latest",
-    arguments=["transfer", "--config", "/app/config/config.yaml",
-               "--source-path", "/data/*.csv", "--dest-path", "processed/"],
-    env_vars={
-        "NIXCOPY_CORRELATION_ID": "{{ run_id }}",   # Airflow DAG run ID
-        "NIXCOPY_APP_VERSION":    "1.2.0",
-        "POD_NAME":               "{{ task_instance.hostname }}",
-        "SFTP_PASSWORD":          "...",             # from K8s Secret
-        "AWS_ACCESS_KEY_ID":      "...",
-        "AWS_SECRET_ACCESS_KEY":  "...",
-    },
+    image="your-registry/nixcopy:1.2.0",   # pin to a specific OCI-labeled tag
+    cmds=["./nixcopy"],
+    arguments=["transfer", "-s", "/data/exports/*.csv", "-d", "processed/"],
+    env_vars=[
+        # Observability
+        k8s.V1EnvVar(name="NIXCOPY_CORRELATION_ID", value="{{ run_id }}"),
+        k8s.V1EnvVar(name="NIXCOPY_APP_VERSION",    value="1.2.0"),
+        k8s.V1EnvVar(name="POD_NAME",               value_from=k8s.V1EnvVarSource(
+            field_ref=k8s.V1ObjectFieldSelector(field_path="metadata.name"))),
+        # Source — SFTP (credentials from K8s Secret)
+        k8s.V1EnvVar(name="NIXCOPY_SOURCE_TYPE",     value="sftp"),
+        k8s.V1EnvVar(name="NIXCOPY_SOURCE_HOST",     value_from=k8s.V1EnvVarSource(
+            secret_key_ref=k8s.V1SecretKeySelector(name="sftp-creds", key="host"))),
+        k8s.V1EnvVar(name="NIXCOPY_SOURCE_USERNAME", value_from=k8s.V1EnvVarSource(
+            secret_key_ref=k8s.V1SecretKeySelector(name="sftp-creds", key="username"))),
+        k8s.V1EnvVar(name="NIXCOPY_SOURCE_PASSWORD", value_from=k8s.V1EnvVarSource(
+            secret_key_ref=k8s.V1SecretKeySelector(name="sftp-creds", key="password"))),
+        # Destination — S3 via IRSA (no keys needed, role bound to service account)
+        k8s.V1EnvVar(name="NIXCOPY_DEST_TYPE",      value="s3"),
+        k8s.V1EnvVar(name="NIXCOPY_DEST_REGION",    value="ap-southeast-1"),
+        k8s.V1EnvVar(name="NIXCOPY_DEST_BUCKET",    value="my-data-bucket"),
+        k8s.V1EnvVar(name="NIXCOPY_DEST_AUTH_TYPE", value="web_identity"),
+    ],
+    security_context=k8s.V1PodSecurityContext(run_as_non_root=True),
     get_logs=True,
+    is_delete_operator_pod=True,
 )
 ```
 
 Logs go to stdout and are collected automatically by the K8s logging stack (Loki, CloudWatch, etc.).
+
+---
+
+## 🐳 Docker & Kubernetes Golden Image
+
+### Building the Image
+
+```bash
+# Single-arch build for local development (current platform)
+make docker-build
+
+# Multi-arch build and push to registry (linux/amd64 + linux/arm64)
+# Requires: docker buildx, a builder with multi-arch support, and a registry
+IMAGE_NAME=your-registry/nixcopy make docker-buildx
+
+# Inspect OCI labels on the built image
+docker inspect go-nixcopy:latest | jq '.[0].Config.Labels'
+```
+
+The image is built with:
+
+| Property | Value |
+|---|---|
+| Base image | `alpine:3.21` (pinned) |
+| User | Non-root (`nixcopy`, UID assigned by Alpine) |
+| Architectures | `linux/amd64`, `linux/arm64` |
+| OCI labels | `version`, `revision` (git SHA), `created` (ISO-8601) |
+
+### OCI Labels (Traceability)
+
+Every `make docker-build` or `make docker-buildx` run injects:
+
+```
+org.opencontainers.image.version   = git describe --tags (e.g. v1.2.0-3-gabcd1234)
+org.opencontainers.image.revision  = git SHA short
+org.opencontainers.image.created   = build timestamp (UTC)
+org.opencontainers.image.title     = go-nixcopy
+org.opencontainers.image.source    = https://github.com/preedep/go-nixcopy
+```
+
+### KPO Golden Image — Configuration via Env Vars
+
+The image supports **no-config-file** mode. Inject all storage config as `NIXCOPY_*` Kubernetes Secret env vars — no YAML file mount required:
+
+| Category | Env Var | Description |
+|---|---|---|
+| **Storage type** | `NIXCOPY_SOURCE_TYPE` | `sftp`, `ftps`, `s3`, `blob`, `local` |
+| | `NIXCOPY_DEST_TYPE` | Same values |
+| **SFTP/FTPS** | `NIXCOPY_SOURCE_HOST` / `NIXCOPY_DEST_HOST` | Hostname |
+| | `NIXCOPY_SOURCE_PORT` / `NIXCOPY_DEST_PORT` | Port |
+| | `NIXCOPY_SOURCE_USERNAME` / `NIXCOPY_DEST_USERNAME` | Username |
+| | `NIXCOPY_SOURCE_PASSWORD` / `NIXCOPY_DEST_PASSWORD` | Password |
+| | `NIXCOPY_SOURCE_PRIVATE_KEY` / `NIXCOPY_DEST_PRIVATE_KEY` | Private key path |
+| **S3** | `NIXCOPY_SOURCE_REGION` / `NIXCOPY_DEST_REGION` | AWS region |
+| | `NIXCOPY_SOURCE_BUCKET` / `NIXCOPY_DEST_BUCKET` | Bucket name |
+| | `NIXCOPY_SOURCE_AUTH_TYPE` / `NIXCOPY_DEST_AUTH_TYPE` | `access_key`, `iam_role`, `web_identity`, `assume_role` |
+| | `NIXCOPY_SOURCE_ACCESS_KEY` / `NIXCOPY_DEST_ACCESS_KEY` | Access key ID |
+| | `NIXCOPY_SOURCE_SECRET_KEY` / `NIXCOPY_DEST_SECRET_KEY` | Secret key |
+| | `NIXCOPY_SOURCE_ROLE_ARN` / `NIXCOPY_DEST_ROLE_ARN` | IAM role ARN |
+| **Azure Blob** | `NIXCOPY_SOURCE_ACCOUNT_NAME` / `NIXCOPY_DEST_ACCOUNT_NAME` | Storage account |
+| | `NIXCOPY_SOURCE_CONTAINER` / `NIXCOPY_DEST_CONTAINER` | Container name |
+| | `NIXCOPY_SOURCE_AUTH_TYPE` / `NIXCOPY_DEST_AUTH_TYPE` | `shared_key`, `managed_identity`, `service_principal`, `sas_token` |
+| | `NIXCOPY_SOURCE_ACCOUNT_KEY` / `NIXCOPY_DEST_ACCOUNT_KEY` | Account key |
+| | `NIXCOPY_SOURCE_CLIENT_ID` / `NIXCOPY_DEST_CLIENT_ID` | Client ID (SP/MI) |
+| | `NIXCOPY_SOURCE_CLIENT_SECRET` / `NIXCOPY_DEST_CLIENT_SECRET` | Client secret (SP) |
+| | `NIXCOPY_SOURCE_TENANT_ID` / `NIXCOPY_DEST_TENANT_ID` | Tenant ID (SP) |
+| **Transfer** | `NIXCOPY_BUFFER_SIZE` | Buffer size in bytes (default: 33554432) |
+| | `NIXCOPY_CONCURRENT_FILES` | Parallel file count (default: 4) |
+| | `NIXCOPY_RETRY_ATTEMPTS` | Retry count (default: 3) |
+| | `NIXCOPY_RETRY_DELAY` | Retry delay e.g. `10s` (default: 5s) |
+| | `NIXCOPY_VERIFY_CHECKSUM` | `true`/`false` (default: false) |
+| | `NIXCOPY_ENABLE_RESUME` | `true`/`false` (default: false) |
+
+📖 Full reference with every env var: [CLI_USAGE.md — NIXCOPY_* Environment Variables](CLI_USAGE.md#nixcopy-environment-variables)
 
 ---
 
@@ -919,10 +1030,10 @@ transfer:
 - [x] SHA-256 checksum verification (end-to-end integrity)
 - [x] Resume capability สำหรับการถ่ายโอนที่ถูกขัดจอน (Local & SFTP)
 - [x] Standard application logging (standard-app-log v1.0) — structured JSON to stdout, K8s/Airflow ready
+- [x] **KPO Golden Image** — non-root user, pinned base image, correct exit codes, `NIXCOPY_*` env-var config, multi-arch (`linux/amd64` + `linux/arm64`), OCI labels
 
 ### 🚧 In Progress / Planned
 - [ ] Web UI สำหรับการจัดการ
-- [ ] Docker image
 - [ ] รองรับ Google Cloud Storage
 - [ ] Bandwidth limiting
 - [ ] Scheduling transfers

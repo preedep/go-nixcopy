@@ -134,6 +134,9 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 		cfg = *config.DefaultConfig()
 	}
 
+	// Overlay environment variables (NIXCOPY_*) — env wins over config file, loses to CLI flags
+	config.LoadFromEnv(&cfg)
+
 	// Override config with CLI flags
 	if err := applyCliFlags(&cfg); err != nil {
 		return fmt.Errorf("failed to apply CLI flags: %w", err)
@@ -334,6 +337,7 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 				fmt.Printf("  - %s: %v\n", result.SourcePath, result.Error)
 			}
 		}
+		return fmt.Errorf("%d of %d file(s) failed to transfer", failCount, len(results))
 	}
 
 	return nil

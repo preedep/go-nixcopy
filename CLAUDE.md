@@ -1,7 +1,9 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+## Project Identity
 
+`go-nixcopy` is Golang CLI Project , for fast universal copy several source/sink (ex. sftp server to azure blob storage)  
+ `go-nixcop` is focus small binary , fast , low memory consumption
 ## Commands
 
 ```bash

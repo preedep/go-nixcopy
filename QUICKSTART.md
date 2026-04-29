@@ -71,12 +71,9 @@ transfer:
   retry_attempts: 3
   retry_delay: 5s
   timeout: 30m
-
-logging:
-  level: info
-  format: json
-  output_path: stdout
 ```
+
+> **Note:** The `logging:` block is deprecated and no longer read. Logs are always emitted as structured JSON to stdout.
 
 ```bash
 ./bin/nixcopy transfer -c config.yaml -s /data/backup.tar.gz -d backups/backup.tar.gz
@@ -110,12 +107,36 @@ make fmt                # Format code
 make lint               # รัน linter
 
 # Docker
-make docker-build       # Build Docker image
+make docker-build       # Build Docker image for current platform (with OCI labels)
+make docker-buildx      # Build + push multi-arch image (linux/amd64, linux/arm64)
 make docker-run         # รัน Docker container
 
 # Cleanup
 make clean              # ลบไฟล์ build
 ```
+
+## KPO Quick Start (ไม่ต้องมี config file)
+
+รันจาก Docker โดยใช้ env vars แทน config file:
+
+```bash
+docker run --rm \
+  -e NIXCOPY_SOURCE_TYPE=sftp \
+  -e NIXCOPY_SOURCE_HOST=sftp.example.com \
+  -e NIXCOPY_SOURCE_PORT=22 \
+  -e NIXCOPY_SOURCE_USERNAME=user \
+  -e NIXCOPY_SOURCE_PASSWORD=secret \
+  -e NIXCOPY_DEST_TYPE=s3 \
+  -e NIXCOPY_DEST_REGION=ap-southeast-1 \
+  -e NIXCOPY_DEST_BUCKET=my-bucket \
+  -e NIXCOPY_DEST_AUTH_TYPE=access_key \
+  -e NIXCOPY_DEST_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE \
+  -e NIXCOPY_DEST_SECRET_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY \
+  go-nixcopy:latest \
+  transfer -s /data/file.csv -d processed/file.csv
+```
+
+ดู [README.md — KPO Golden Image](README.md#-docker--kubernetes-golden-image) สำหรับตัวอย่าง KubernetesPodOperator แบบเต็ม
 
 ## Performance Tips
 
