@@ -77,7 +77,9 @@ internal/
 │   ├── flags_test.go                — applyCliFlags, validateConfig, --skip-existing, --resume
 │   └── transfer_summary_test.go     — transferSummary JSON shape, omitempty, failed_files
 └── usecase/
+    ├── compress_test.go             — gzip/zstd round-trips, passthrough, ratio, invalid algo (6 tests)
     ├── pattern_matcher_test.go      — glob expansion, recursive **, no-match behaviour
+    ├── throttle_test.go             — ParseBandwidth formats, passthrough, data integrity, context cancel (4 tests)
     ├── transfer_usecase_skip_test.go — SkipExisting: 5 cases including batch
     └── transfer_usecase_test.go     — success, checksum, resume, retry, batch partial failure
 ```
@@ -134,13 +136,56 @@ json.NewEncoder(&buf).Encode(s)
 // Assert field names, omitempty on average_speed_mbps and failed_files
 ```
 
+### Bandwidth throttle tests
+
+```go
+// ParseBandwidth — table-driven
+got, err := ParseBandwidth("10MB")   // 10 * 1024 * 1024
+got, err  = ParseBandwidth("1GiB")   // 1 * 1024 * 1024 * 1024
+got, err  = ParseBandwidth("0")      // 0 (unlimited)
+got, err  = ParseBandwidth("invalid") // error
+
+// ThrottledReader — context cancel
+ctx, cancel := context.WithCancel(context.Background())
+r := newThrottledReader(ctx, bytes.NewReader(data), 1) // 1 byte/s
+cancel()
+_, err = io.ReadAll(r) // returns context error quickly
+```
+
+### Compression tests
+
+```go
+// Round-trip: compress → decompress → compare
+var buf bytes.Buffer
+cw, _ := newCompressWriter(&buf, CompressionGzip)
+cw.Write(original)
+cw.Close()
+gr, _ := gzip.NewReader(&buf)
+decoded, _ := io.ReadAll(gr)
+// bytes.Equal(decoded, original) == true
+
+// Invalid algo
+_, err := newCompressWriter(io.Discard, "bzip2") // error
+
+// Compression ratio check (compressible input)
+var compressed bytes.Buffer
+cw, _ = newCompressWriter(&compressed, CompressionZstd)
+cw.Write(make([]byte, 1024*1024)) // all zeros — highly compressible
+cw.Close()
+// compressed.Len() < 1024*1024
+```
+
 ### Env var tests
 
 ```go
 t.Setenv("NIXCOPY_SKIP_EXISTING", "true")
+t.Setenv("NIXCOPY_BANDWIDTH_LIMIT", "10485760")
+t.Setenv("NIXCOPY_COMPRESSION", "gzip")
 cfg := DefaultConfig()
 LoadFromEnv(cfg)
 // cfg.Transfer.SkipExisting == true
+// cfg.Transfer.BandwidthLimit == 10485760
+// cfg.Transfer.Compression == "gzip"
 ```
 
 ---

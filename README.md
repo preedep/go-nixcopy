@@ -602,9 +602,10 @@ make test-race
 - ✅ S3 multipart part-size algorithm (5 size scenarios)
 - ✅ Azure Blob block-size algorithm (5 size scenarios)
 - ✅ JSON exit summary shape and omitempty behaviour
-- ✅ `NIXCOPY_*` env var loading including `NIXCOPY_SKIP_EXISTING` and `NIXCOPY_BANDWIDTH_LIMIT`
-- ✅ CLI flags including `--skip-existing`, `--resume`, and `--bandwidth-limit`
+- ✅ `NIXCOPY_*` env var loading including `NIXCOPY_SKIP_EXISTING`, `NIXCOPY_BANDWIDTH_LIMIT`, and `NIXCOPY_COMPRESSION`
+- ✅ CLI flags including `--skip-existing`, `--resume`, `--bandwidth-limit`, and `--compress`
 - ✅ Bandwidth throttle: `ParseBandwidth` (all unit suffixes), data integrity, context cancel abort
+- ✅ Compression: gzip/zstd round-trips, passthrough identity, compression ratio, invalid algo error
 - ✅ Configuration loading and validation
 
 📖 **อ่านเพิ่มเติม:** [TESTING.md](TESTING.md) - คู่มือการทดสอบแบบละเอียด
@@ -1168,7 +1169,6 @@ transfer:
 - [ ] รองรับ Google Cloud Storage
 - [ ] Scheduling transfers
 - [ ] Email notifications
-- [ ] Compression support (gzip, zstd)
 - [ ] Incremental backup
 
 ## 💬 ติดต่อ
