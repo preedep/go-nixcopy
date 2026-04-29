@@ -2,15 +2,25 @@
 
 ## การติดตั้งและรันครั้งแรก
 
-### 1. Build โปรแกรม
+### 1. ติดตั้ง nixcopy
 
 ```bash
-cd /Users/preedee/Projects/golang/go-nixcopy
-make deps
-make build
-```
+# Homebrew (macOS / Linux) — แนะนำ
+brew tap preedep/tap && brew install nixcopy
 
-Binary จะถูกสร้างที่ `./bin/nixcopy`
+# APT (Debian / Ubuntu)
+echo "deb [trusted=yes] https://apt.fury.io/preedep/ /" | sudo tee /etc/apt/sources.list.d/nixcopy.list
+sudo apt-get update && sudo apt-get install nixcopy
+
+# YUM (RHEL / CentOS / Fedora)
+sudo yum install --repofrompath nixcopy,https://yum.fury.io/preedep/ nixcopy
+
+# Go install
+go install github.com/preedep/go-nixcopy/cmd/nixcopy@latest
+
+# Build จาก source
+make deps && make build   # binary อยู่ที่ ./bin/nixcopy
+```
 
 ### 2. สร้างไฟล์ Config
 

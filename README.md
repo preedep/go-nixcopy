@@ -37,6 +37,16 @@ go-nixcopy is a small, fast Go CLI for transferring files between storage system
 **Install:**
 
 ```bash
+# Homebrew (macOS / Linux)
+brew tap preedep/tap && brew install nixcopy
+
+# APT (Debian / Ubuntu)
+echo "deb [trusted=yes] https://apt.fury.io/preedep/ /" | sudo tee /etc/apt/sources.list.d/nixcopy.list
+sudo apt-get update && sudo apt-get install nixcopy
+
+# YUM (RHEL / CentOS / Fedora)
+sudo yum install --repofrompath nixcopy,https://yum.fury.io/preedep/ nixcopy
+
 # Go install
 go install github.com/preedep/go-nixcopy/cmd/nixcopy@latest
 

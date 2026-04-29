@@ -42,9 +42,26 @@ make docker-build && make docker-run
 # Clean
 make clean              # build artifacts (bin/)
 make clean-dist         # release artifacts (dist/)
+
+# Release (GoReleaser)
+make goreleaser-check     # validate .goreleaser.yaml
+make goreleaser-snapshot  # local test build — no publish, no tag required
+git tag v1.x.x && git push origin v1.x.x  # trigger full release in CI
 ```
 
 See [BUILD.md](docs/development/build.md) for release build flags, binary size benchmarks, and CI/CD integration examples.
+
+## Distribution Channels
+
+Releases are fully automated via GoReleaser (`.goreleaser.yaml`) triggered by a `v*` tag push on `main`.
+
+| Channel | How users install | Secret required |
+|---|---|---|
+| GitHub Releases | Download binary from releases page | — |
+| Homebrew | `brew tap preedep/tap && brew install nixcopy` | `HOMEBREW_TAP_TOKEN` |
+| APT (Debian/Ubuntu) | `apt-get install nixcopy` via Fury.io | `FURY_TOKEN` |
+| YUM (RHEL/CentOS) | `yum install nixcopy` via Fury.io | `FURY_TOKEN` |
+| Docker Hub | `docker pull nickmsft/gonixcopy:latest` | `DOCKERHUB_USERNAME/TOKEN` |
 
 ---
 

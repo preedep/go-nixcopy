@@ -37,6 +37,16 @@ go-nixcopy คือ CLI ขนาดเล็กและรวดเร็ว�
 **ติดตั้ง:**
 
 ```bash
+# Homebrew (macOS / Linux)
+brew tap preedep/tap && brew install nixcopy
+
+# APT (Debian / Ubuntu)
+echo "deb [trusted=yes] https://apt.fury.io/preedep/ /" | sudo tee /etc/apt/sources.list.d/nixcopy.list
+sudo apt-get update && sudo apt-get install nixcopy
+
+# YUM (RHEL / CentOS / Fedora)
+sudo yum install --repofrompath nixcopy,https://yum.fury.io/preedep/ nixcopy
+
 # ติดตั้งผ่าน Go
 go install github.com/preedep/go-nixcopy/cmd/nixcopy@latest
 
