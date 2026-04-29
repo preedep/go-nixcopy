@@ -109,7 +109,7 @@ nfpms:
 dockers:
   - image_templates:
       - "nickmsft/gonixcopy:{{.Tag}}-amd64"
-    dockerfile: Dockerfile
+    dockerfile: Dockerfile.goreleaser
     use: buildx
     build_flag_templates:
       - "--platform=linux/amd64"
@@ -118,7 +118,7 @@ dockers:
       - "--build-arg=BUILD_DATE={{.Date}}"
   - image_templates:
       - "nickmsft/gonixcopy:{{.Tag}}-arm64"
-    dockerfile: Dockerfile
+    dockerfile: Dockerfile.goreleaser
     use: buildx
     goarch: arm64
     build_flag_templates:
