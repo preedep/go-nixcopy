@@ -12,6 +12,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.100.0
 	github.com/aws/aws-sdk-go-v2/service/sts v1.42.0
 	github.com/jlaffaye/ftp v0.2.0
+	github.com/klauspost/compress v1.18.5
 	github.com/pkg/sftp v1.13.6
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/viper v1.18.2

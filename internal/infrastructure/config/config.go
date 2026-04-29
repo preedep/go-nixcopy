@@ -130,6 +130,8 @@ type TransferConfig struct {
 	VerifyChecksum  bool          `yaml:"verify_checksum" json:"verify_checksum"`
 	EnableResume    bool          `yaml:"enable_resume" json:"enable_resume"`
 	SkipExisting    bool          `yaml:"skip_existing" json:"skip_existing"`
+	BandwidthLimit  int64         `yaml:"bandwidth_limit" json:"bandwidth_limit"` // bytes/sec; 0 = unlimited
+	Compression     string        `yaml:"compression" json:"compression"`         // "gzip", "zstd", or ""
 }
 
 type LoggingConfig struct {

@@ -83,6 +83,8 @@ var (
 	retryAttempts   int
 	enableResume    bool
 	skipExisting    bool
+	bandwidthLimit  string
+	compress        string
 )
 
 var transferCmd = &cobra.Command{
@@ -141,6 +143,8 @@ func init() {
 	transferCmd.Flags().IntVar(&retryAttempts, "retry-attempts", 0, "Number of retry attempts")
 	transferCmd.Flags().BoolVar(&enableResume, "resume", false, "Resume interrupted transfer if destination has a partial file (local and SFTP only)")
 	transferCmd.Flags().BoolVar(&skipExisting, "skip-existing", false, "Skip transfer if destination already has a file with the same size (idempotent retries)")
+	transferCmd.Flags().StringVar(&bandwidthLimit, "bandwidth-limit", "", "Max bandwidth per file (e.g. 10MB, 1GB, 512KB); 0 or empty = unlimited")
+	transferCmd.Flags().StringVar(&compress, "compress", "", "Compress data stream before writing (gzip or zstd); empty = no compression")
 }
 
 func runTransfer(cmd *cobra.Command, args []string) error {
@@ -164,6 +168,16 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 
 	// Override config with CLI flags
 	applyCliFlags(&cfg)
+
+	// Parse --bandwidth-limit flag (human-readable string) and override config.
+	// NIXCOPY_BANDWIDTH_LIMIT (raw int64 bytes) is already applied by LoadFromEnv above.
+	if bandwidthLimit != "" {
+		bw, err := usecase.ParseBandwidth(bandwidthLimit)
+		if err != nil {
+			return fmt.Errorf("invalid --bandwidth-limit: %w", err)
+		}
+		cfg.Transfer.BandwidthLimit = bw
+	}
 
 	// Validate configuration
 	if err := validateConfig(&cfg); err != nil {
@@ -234,6 +248,8 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 		VerifyChecksum:  cfg.Transfer.VerifyChecksum,
 		EnableResume:    cfg.Transfer.EnableResume,
 		SkipExisting:    cfg.Transfer.SkipExisting,
+		BandwidthLimit:  cfg.Transfer.BandwidthLimit,
+		Compression:     cfg.Transfer.Compression,
 	}
 
 	transferUseCase := usecase.NewTransferUseCase(sourceStorage, destStorage, transferConfig, log)

@@ -59,7 +59,9 @@ type TransferConfig struct {
 	Timeout         time.Duration
 	VerifyChecksum  bool
 	EnableResume    bool
-	SkipExisting    bool // skip transfer if destination already has a file with matching size
+	SkipExisting    bool   // skip transfer if destination already has a file with matching size
+	BandwidthLimit  int64  // max bytes per second per file transfer; 0 = unlimited
+	Compression     string // "gzip", "zstd", or "" (no compression)
 }
 
 type TransferResult struct {

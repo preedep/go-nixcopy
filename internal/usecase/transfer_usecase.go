@@ -184,10 +184,15 @@ func (t *TransferUseCase) Transfer(
 	}
 
 	// Determine resume capability once — backends either implement Resumer or they don't.
+	// Resume is incompatible with on-the-fly compression (compressed chunks are not appendable).
 	srcResumer, srcCanResume := t.source.(repository.Resumer)
 	destResumer, destCanResume := t.dest.(repository.Resumer)
-	canResume := t.config.EnableResume && srcCanResume && destCanResume
-	if t.config.EnableResume && !canResume {
+	canResume := t.config.EnableResume && srcCanResume && destCanResume && t.config.Compression == ""
+	if t.config.EnableResume && t.config.Compression != "" {
+		t.logger.Warn("Resume disabled: incompatible with on-the-fly compression",
+			applog.F("source", sourcePath),
+		)
+	} else if t.config.EnableResume && !canResume {
 		t.logger.Warn("Resume requested but not supported by one or both storage backends, using full transfer",
 			applog.F("source", sourcePath),
 		)
@@ -235,11 +240,15 @@ func (t *TransferUseCase) Transfer(
 			continue
 		}
 
-		// Checksum is only computed for full (non-resumed) transfers — we cannot
-		// hash the skipped prefix bytes without re-reading from the source.
+		// Checksum is only computed for full (non-resumed, non-compressed) transfers.
+		// Compression changes the byte stream so the destination hash would never match.
 		var csReader *checksumReader
 		var streamReader io.Reader = reader
-		if t.config.VerifyChecksum && resumeOffset == 0 {
+		if t.config.VerifyChecksum && t.config.Compression != "" {
+			t.logger.Warn("Checksum verification skipped: incompatible with on-the-fly compression",
+				applog.F("source", sourcePath),
+			)
+		} else if t.config.VerifyChecksum && resumeOffset == 0 {
 			csReader = newChecksumReader(reader)
 			streamReader = csReader
 		} else if t.config.VerifyChecksum && resumeOffset > 0 {
@@ -247,6 +256,10 @@ func (t *TransferUseCase) Transfer(
 				applog.F("source", sourcePath),
 				applog.F("resume_offset", resumeOffset),
 			)
+		}
+
+		if t.config.BandwidthLimit > 0 {
+			streamReader = newThrottledReader(ctx, streamReader, t.config.BandwidthLimit)
 		}
 
 		// Wrap reader with progress tracking.
@@ -263,13 +276,52 @@ func (t *TransferUseCase) Transfer(
 			bufferSize:    t.config.BufferSize,
 		}
 
+		// When compression is active, run a goroutine that pulls from the progress
+		// reader, compresses, and feeds a pipe. dest.Write reads from the pipe.
+		// Progress is tracked on uncompressed bytes so the percentage is correct.
+		writeReader := io.Reader(pr)
+		var compErrCh <-chan error
+		if t.config.Compression != "" {
+			pipeReader, pipeWriter := io.Pipe()
+			errCh := make(chan error, 1)
+			compErrCh = errCh
+			go func() {
+				cw, cerr := newCompressWriter(pipeWriter, t.config.Compression)
+				if cerr != nil {
+					_ = pipeWriter.CloseWithError(cerr)
+					errCh <- cerr
+					return
+				}
+				_, cerr = io.Copy(cw, pr)
+				if closeErr := cw.Close(); cerr == nil {
+					cerr = closeErr
+				}
+				_ = pipeWriter.CloseWithError(cerr)
+				errCh <- cerr
+			}()
+			writeReader = pipeReader
+		}
+
+		// Size is unknown when compressing; pass 0 so backends use default part sizes.
+		writeSize := remaining
+		if t.config.Compression != "" {
+			writeSize = 0
+		}
+
 		// Stream data from source to destination.
 		if resumeOffset > 0 {
-			err = destResumer.AppendWrite(ctx, destPath, pr, remaining, resumeOffset)
+			err = destResumer.AppendWrite(ctx, destPath, writeReader, remaining-resumeOffset, resumeOffset)
 		} else {
-			err = t.dest.Write(ctx, destPath, pr, remaining)
+			err = t.dest.Write(ctx, destPath, writeReader, writeSize)
 		}
 		reader.Close()
+
+		// Collect any compression error (non-nil only when compressing).
+		if compErrCh != nil {
+			if compErr := <-compErrCh; err == nil {
+				err = compErr
+			}
+		}
 
 		if err != nil {
 			lastErr = fmt.Errorf("failed to write destination file: %w", err)
@@ -277,7 +329,7 @@ func (t *TransferUseCase) Transfer(
 		}
 
 		// Verify checksum when requested: compare SHA256 of sent bytes vs stored bytes
-		if t.config.VerifyChecksum && resumeOffset == 0 {
+		if t.config.VerifyChecksum && resumeOffset == 0 && t.config.Compression == "" {
 			sourceChecksum := csReader.sum()
 
 			destReader, _, err := t.dest.Read(ctx, destPath)
