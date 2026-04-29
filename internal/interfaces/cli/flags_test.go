@@ -439,6 +439,119 @@ func TestApplyCliFlags_Defaults(t *testing.T) {
 	}
 }
 
+func TestApplyCliFlags_SourceLocal(t *testing.T) {
+	resetTransferFlags()
+	sourceType = "local"
+
+	cfg := config.DefaultConfig()
+	applyCliFlags(cfg)
+
+	if cfg.Source.Type != config.StorageTypeLocal {
+		t.Errorf("Source.Type = %v, want %v", cfg.Source.Type, config.StorageTypeLocal)
+	}
+}
+
+func TestApplyCliFlags_DestLocal(t *testing.T) {
+	resetTransferFlags()
+	destType = "local"
+
+	cfg := config.DefaultConfig()
+	applyCliFlags(cfg)
+
+	if cfg.Destination.Type != config.StorageTypeLocal {
+		t.Errorf("Destination.Type = %v, want %v", cfg.Destination.Type, config.StorageTypeLocal)
+	}
+}
+
+func TestApplyCliFlags_SourceSFTP_PrivateKey(t *testing.T) {
+	resetTransferFlags()
+	sourceType = "sftp"
+	sourceHost = "sftp.example.com"
+	sourceUsername = "user"
+	sourcePrivateKey = "/home/user/.ssh/id_rsa"
+
+	cfg := config.DefaultConfig()
+	applyCliFlags(cfg)
+
+	if cfg.Source.SFTP == nil {
+		t.Fatal("Source.SFTP is nil")
+	}
+	if cfg.Source.SFTP.PrivateKeyPath != "/home/user/.ssh/id_rsa" {
+		t.Errorf("SFTP.PrivateKeyPath = %q, want /home/user/.ssh/id_rsa", cfg.Source.SFTP.PrivateKeyPath)
+	}
+}
+
+func TestApplyCliFlags_DestSFTP_PrivateKey(t *testing.T) {
+	resetTransferFlags()
+	destType = "sftp"
+	destHost = "dest.sftp.example.com"
+	destUsername = "destuser"
+	destPrivateKey = "/home/user/.ssh/id_rsa"
+
+	cfg := config.DefaultConfig()
+	applyCliFlags(cfg)
+
+	if cfg.Destination.SFTP == nil {
+		t.Fatal("Destination.SFTP is nil")
+	}
+	if cfg.Destination.SFTP.PrivateKeyPath != "/home/user/.ssh/id_rsa" {
+		t.Errorf("SFTP.PrivateKeyPath = %q, want /home/user/.ssh/id_rsa", cfg.Destination.SFTP.PrivateKeyPath)
+	}
+}
+
+func TestApplyCliFlags_DestFTPS(t *testing.T) {
+	resetTransferFlags()
+	destType = "ftps"
+	destHost = "ftps-dest.example.com"
+	destPort = 21
+	destUsername = "ftpuser"
+	destPassword = "ftppass"
+
+	cfg := config.DefaultConfig()
+	applyCliFlags(cfg)
+
+	if cfg.Destination.Type != config.StorageTypeFTPS {
+		t.Errorf("Destination.Type = %v, want %v", cfg.Destination.Type, config.StorageTypeFTPS)
+	}
+	if cfg.Destination.FTPS == nil {
+		t.Fatal("Destination.FTPS is nil")
+	}
+	if cfg.Destination.FTPS.Host != "ftps-dest.example.com" {
+		t.Errorf("FTPS.Host = %q, want ftps-dest.example.com", cfg.Destination.FTPS.Host)
+	}
+	if cfg.Destination.FTPS.Port != 21 {
+		t.Errorf("FTPS.Port = %d, want 21", cfg.Destination.FTPS.Port)
+	}
+}
+
+func TestApplyCliFlags_SourceS3(t *testing.T) {
+	resetTransferFlags()
+	sourceType = "s3"
+	sourceRegion = "ap-southeast-1"
+	sourceBucket = "src-bucket"
+	sourceAccessKey = "AKIAIOSFODNN7EXAMPLE"
+	sourceSecretKey = "wJalrXUtnFEMI"
+
+	cfg := config.DefaultConfig()
+	applyCliFlags(cfg)
+
+	if cfg.Source.Type != config.StorageTypeS3 {
+		t.Errorf("Source.Type = %v, want %v", cfg.Source.Type, config.StorageTypeS3)
+	}
+	if cfg.Source.S3 == nil {
+		t.Fatal("Source.S3 is nil")
+	}
+	if cfg.Source.S3.Region != "ap-southeast-1" {
+		t.Errorf("S3.Region = %q, want ap-southeast-1", cfg.Source.S3.Region)
+	}
+	if cfg.Source.S3.AccessKeyID != "AKIAIOSFODNN7EXAMPLE" {
+		t.Errorf("S3.AccessKeyID = %q", cfg.Source.S3.AccessKeyID)
+	}
+	if cfg.Source.S3.SecretAccessKey != "wJalrXUtnFEMI" {
+		t.Errorf("S3.SecretAccessKey = %q", cfg.Source.S3.SecretAccessKey)
+	}
+}
+
 func TestValidateConfig_MissingSourceType(t *testing.T) {
 	cfg := &config.Config{}
 
