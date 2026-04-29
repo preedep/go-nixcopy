@@ -14,21 +14,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # needed for git describe in build-release.sh
 
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
 
-      - name: Download dependencies
-        run: go mod download
+      - name: Verify go.mod is tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
 
       - name: Run tests
-        run: go test ./...
+        run: go test -race -covermode=atomic -count=1 ./...
 
       - name: Build release binaries
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v} ./build-release.sh all
+          VERSION=${GITHUB_REF_NAME#v} ./build-release.sh all
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd dist
+          sha256sum * > checksums.txt
+          echo "--- checksums ---"
+          cat checksums.txt
 
       - name: List release artifacts
         run: ls -lh dist/
@@ -36,21 +47,42 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "Release ${{ github.ref_name }}"
+          name: "go-nixcopy ${{ github.ref_name }}"
           body: |
             ## go-nixcopy ${{ github.ref_name }}
 
-            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for full release notes.
 
             ### Downloads
 
             | Platform | Architecture | File |
             |---|---|---|
-            | Linux | amd64 | `nixcopy-linux-amd64` |
-            | Linux | arm64 | `nixcopy-linux-arm64` |
+            | Linux | amd64 (x86-64) | `nixcopy-linux-amd64` |
+            | Linux | arm64 (aarch64) | `nixcopy-linux-arm64` |
+            | Linux | 386 (x86-32) | `nixcopy-linux-386` |
             | macOS | amd64 (Intel) | `nixcopy-darwin-amd64` |
             | macOS | arm64 (Apple Silicon) | `nixcopy-darwin-arm64` |
             | Windows | amd64 | `nixcopy-windows-amd64.exe` |
-          files: dist/*
+            | Windows | 386 | `nixcopy-windows-386.exe` |
+            | FreeBSD | amd64 | `nixcopy-freebsd-amd64` |
+
+            ### Verify integrity
+
+            ```bash
+            sha256sum -c checksums.txt
+            ```
+
+            ### Quick start
+
+            ```bash
+            # Linux / macOS
+            chmod +x nixcopy-linux-amd64
+            ./nixcopy-linux-amd64 --help
+
+            # Docker (distroless, non-root)
+            docker pull ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+            ```
+          files: |
+            dist/*
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
