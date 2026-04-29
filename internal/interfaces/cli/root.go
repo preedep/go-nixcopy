@@ -14,9 +14,9 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "nixcopy",
 	Short: "Fast file transfer CLI tool",
-	Long: `go-nixcopy เป็นเครื่องมือ CLI สำหรับการถ่ายโอนไฟล์ความเร็วสูง
-รองรับการถ่ายโอนระหว่าง SFTP, FTPS, Azure Blob Storage และ AWS S3
-ด้วยการใช้ streaming เพื่อประหยัดหน่วยความจำ`,
+	Long: `go-nixcopy is a high-speed CLI tool for file transfer.
+Supports transfers between SFTP, FTPS, Azure Blob Storage, and AWS S3
+using streaming to minimize memory usage.`,
 }
 
 // SetBuildInfo wires version metadata injected by GoReleaser into the CLI version string.
