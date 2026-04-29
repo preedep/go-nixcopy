@@ -183,3 +183,23 @@ go test ./internal/usecase/... -run TestPatternMatcher   # specific test
 go test -race ./...                                       # race detector
 go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out
 ```
+
+### Benchmarks
+
+Benchmarks cover local transfer (1 MB–128 MB), batch concurrency, pattern matching, and SHA-256 checksum throughput. No credentials or build tags required.
+
+```bash
+go test -bench=. -benchmem ./internal/usecase/
+```
+
+Run results are machine-specific — do not commit numbers to docs. Use the benchmarks to validate tuning changes locally.
+
+---
+
+## Code Comments
+
+- **Exported types and functions**: one-line godoc only (`// Foo does X`). No multi-paragraph blocks, no `Parameters:` / `Returns:` / `Example:` sections.
+- **Inline comments**: only when the *why* is non-obvious — a hidden constraint, a subtle invariant, or a workaround for a specific bug. If removing the comment wouldn't confuse a future reader, don't write it.
+- **Never** explain what the code does; well-named identifiers already do that.
+
+The existing files (`local.go`, `transfer_usecase.go`, `pattern_matcher.go`) predate this rule and are over-commented — treat them as legacy, not as the style to follow.
