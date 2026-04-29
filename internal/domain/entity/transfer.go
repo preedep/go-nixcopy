@@ -29,6 +29,7 @@ const (
 	TransferStatusInProgress TransferStatus = "in_progress"
 	TransferStatusCompleted  TransferStatus = "completed"
 	TransferStatusFailed     TransferStatus = "failed"
+	TransferStatusSkipped    TransferStatus = "skipped"
 )
 
 type FileInfo struct {
@@ -57,6 +58,8 @@ type TransferConfig struct {
 	RetryDelay      time.Duration
 	Timeout         time.Duration
 	VerifyChecksum  bool
+	EnableResume    bool
+	SkipExisting    bool // skip transfer if destination already has a file with matching size
 }
 
 type TransferResult struct {
@@ -66,6 +69,8 @@ type TransferResult struct {
 	Duration         time.Duration
 	Status           TransferStatus
 	Error            error
+	Checksum         string // SHA256 hex of transferred content; set when VerifyChecksum is true
+	ResumedFrom      int64  // byte offset the transfer resumed from; 0 if started from the beginning
 }
 
 type StreamReader interface {

@@ -7,7 +7,7 @@ import (
 	"github.com/preedep/go-nixcopy/internal/infrastructure/config"
 )
 
-func applyCliFlags(cfg *config.Config) error {
+func applyCliFlags(cfg *config.Config) {
 	// Apply source flags
 	if sourceType != "" {
 		cfg.Source.Type = config.StorageType(sourceType)
@@ -210,6 +210,12 @@ func applyCliFlags(cfg *config.Config) error {
 	if retryAttempts > 0 {
 		cfg.Transfer.RetryAttempts = retryAttempts
 	}
+	if enableResume {
+		cfg.Transfer.EnableResume = true
+	}
+	if skipExisting {
+		cfg.Transfer.SkipExisting = true
+	}
 
 	// Set defaults if not set
 	if cfg.Transfer.BufferSize == 0 {
@@ -227,8 +233,6 @@ func applyCliFlags(cfg *config.Config) error {
 	if cfg.Transfer.Timeout == 0 {
 		cfg.Transfer.Timeout = 30 * time.Minute
 	}
-
-	return nil
 }
 
 func validateConfig(cfg *config.Config) error {

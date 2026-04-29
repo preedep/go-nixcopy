@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jlaffaye/ftp"
+
 	"github.com/preedep/go-nixcopy/internal/domain/entity"
 	"github.com/preedep/go-nixcopy/internal/domain/repository"
 	"github.com/preedep/go-nixcopy/internal/infrastructure/config"
@@ -52,7 +54,7 @@ func (f *FTPSStorage) Connect(ctx context.Context) error {
 	}
 
 	if err := conn.Login(f.config.Username, f.config.Password); err != nil {
-		conn.Quit()
+		_ = conn.Quit()
 		return fmt.Errorf("failed to login: %w", err)
 	}
 
@@ -106,7 +108,7 @@ func (f *FTPSStorage) Read(ctx context.Context, path string) (io.ReadCloser, int
 		return nil, 0, fmt.Errorf("failed to retrieve file: %w", err)
 	}
 
-	return resp, int64(size), nil
+	return resp, size, nil
 }
 
 func (f *FTPSStorage) Stat(ctx context.Context, path string) (*entity.FileInfo, error) {
@@ -127,10 +129,26 @@ func (f *FTPSStorage) Stat(ctx context.Context, path string) (*entity.FileInfo, 
 	return &entity.FileInfo{
 		Path:         path,
 		Name:         filepath.Base(path),
-		Size:         int64(size),
+		Size:         size,
 		ModifiedTime: modTime,
 		IsDirectory:  false,
 	}, nil
+}
+
+// ftpMkdirAll creates path and every intermediate parent directory on an FTP
+// server by calling makeDir once per path component. Errors from individual
+// MakeDir calls are intentionally ignored: intermediate directories often
+// already exist and FTP servers return an error in that case. Any real failure
+// (e.g. permission denied) will surface as an error from the subsequent Stor call.
+func ftpMkdirAll(path string, makeDir func(string) error) {
+	cur := ""
+	for _, part := range strings.Split(filepath.ToSlash(path), "/") {
+		if part == "" {
+			continue
+		}
+		cur += "/" + part
+		_ = makeDir(cur)
+	}
 }
 
 func (f *FTPSStorage) Write(ctx context.Context, path string, reader io.Reader, size int64) error {
@@ -140,8 +158,7 @@ func (f *FTPSStorage) Write(ctx context.Context, path string, reader io.Reader, 
 
 	dir := filepath.Dir(path)
 	if dir != "." && dir != "/" {
-		if err := f.ftpClient.MakeDir(dir); err != nil {
-		}
+		ftpMkdirAll(dir, f.ftpClient.MakeDir)
 	}
 
 	if err := f.ftpClient.Stor(path, reader); err != nil {
@@ -156,7 +173,8 @@ func (f *FTPSStorage) CreateDirectory(ctx context.Context, path string) error {
 		return fmt.Errorf("FTP client not connected")
 	}
 
-	return f.ftpClient.MakeDir(path)
+	ftpMkdirAll(path, f.ftpClient.MakeDir)
+	return nil
 }
 
 func (f *FTPSStorage) Delete(ctx context.Context, path string) error {

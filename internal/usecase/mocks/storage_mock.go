@@ -2,6 +2,7 @@ package mocks
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"sync"
 
@@ -33,6 +34,14 @@ type MockStorage struct {
 	WriteError      error
 	StatError       error
 	DeleteError     error
+
+	// CorruptWrite, when true, flips the first byte of every written file to
+	// simulate storage corruption for checksum-verification tests.
+	CorruptWrite bool
+
+	// ListFunc, when set, overrides the default List implementation.
+	// Use this in tests that need path-aware or recursive-structure list behavior.
+	ListFunc func(ctx context.Context, path string) ([]entity.FileInfo, error)
 }
 
 func NewMockStorage() *MockStorage {
@@ -63,6 +72,10 @@ func (m *MockStorage) List(ctx context.Context, path string) ([]entity.FileInfo,
 
 	if m.ListError != nil {
 		return nil, m.ListError
+	}
+
+	if m.ListFunc != nil {
+		return m.ListFunc(ctx, path)
 	}
 
 	var files []entity.FileInfo
@@ -121,6 +134,10 @@ func (m *MockStorage) Write(ctx context.Context, path string, reader io.Reader, 
 		return err
 	}
 
+	if m.CorruptWrite && len(data) > 0 {
+		data[0] ^= 0xFF // flip first byte to simulate corruption
+	}
+
 	m.FileContent[path] = data
 	return nil
 }
@@ -140,6 +157,62 @@ func (m *MockStorage) Delete(ctx context.Context, path string) error {
 
 	delete(m.Files, path)
 	delete(m.FileContent, path)
+	return nil
+}
+
+// ReadFrom implements repository.Resumer, returning content from offset onward.
+func (m *MockStorage) ReadFrom(ctx context.Context, path string, offset int64) (io.ReadCloser, int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.ReadError != nil {
+		return nil, 0, m.ReadError
+	}
+
+	content, ok := m.FileContent[path]
+	if !ok {
+		return nil, 0, io.EOF
+	}
+	if offset >= int64(len(content)) {
+		return nil, 0, fmt.Errorf("offset %d beyond file size %d", offset, len(content))
+	}
+
+	reader := &mockReadCloser{data: content[offset:]}
+	return reader, int64(len(content)) - offset, nil
+}
+
+// AppendWrite implements repository.Resumer, writing at offset into existing content.
+func (m *MockStorage) AppendWrite(ctx context.Context, path string, reader io.Reader, size, offset int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.WriteCalled = true
+
+	if m.WriteError != nil {
+		return m.WriteError
+	}
+
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return err
+	}
+
+	existing := m.FileContent[path]
+	if offset > int64(len(existing)) {
+		return fmt.Errorf("append offset %d beyond existing size %d", offset, len(existing))
+	}
+
+	result := make([]byte, offset+int64(len(data)))
+	copy(result, existing[:offset])
+	copy(result[offset:], data)
+
+	if m.CorruptWrite && len(result) > int(offset) {
+		result[offset] ^= 0xFF
+	}
+
+	m.FileContent[path] = result
+	if info, ok := m.Files[path]; ok {
+		info.Size = int64(len(result))
+	}
 	return nil
 }
 

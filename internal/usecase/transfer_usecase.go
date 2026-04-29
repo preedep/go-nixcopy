@@ -5,15 +5,18 @@ package usecase
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"path/filepath"
 	"time"
 
+	applog "github.com/preedep/go-nixcopy/internal/infrastructure/logger"
+
 	"github.com/preedep/go-nixcopy/internal/domain/entity"
 	"github.com/preedep/go-nixcopy/internal/domain/repository"
 	"github.com/preedep/go-nixcopy/internal/domain/service"
-	"go.uber.org/zap"
 )
 
 // TransferUseCase implements the core file transfer business logic.
@@ -34,9 +37,9 @@ import (
 // Transfer() or TransferBatch() simultaneously on the same instance.
 type TransferUseCase struct {
 	source repository.StorageReader // Source storage for reading files
-	dest   repository.StorageWriter // Destination storage for writing files
+	dest   repository.Storage       // Destination storage (read back needed for checksum verification)
 	config *entity.TransferConfig   // Transfer configuration (buffer size, retries, etc.)
-	logger *zap.Logger              // Structured logger for operational visibility
+	logger *applog.StandardLogger   // Structured logger for operational visibility
 }
 
 // NewTransferUseCase creates a new TransferUseCase instance.
@@ -61,9 +64,9 @@ type TransferUseCase struct {
 //	transferService := NewTransferUseCase(sourceStorage, destStorage, config, logger)
 func NewTransferUseCase(
 	source repository.StorageReader,
-	dest repository.StorageWriter,
+	dest repository.Storage,
 	config *entity.TransferConfig,
-	logger *zap.Logger,
+	logger *applog.StandardLogger,
 ) service.TransferService {
 	return &TransferUseCase{
 		source: source,
@@ -136,9 +139,9 @@ func (t *TransferUseCase) Transfer(
 		defer close(progressChan)
 	}
 
-	t.logger.Info("Starting transfer",
-		zap.String("source", sourcePath),
-		zap.String("destination", destPath),
+	t.logger.InfoReqEx("Starting transfer",
+		applog.F("source", sourcePath),
+		applog.F("destination", destPath),
 	)
 
 	// Stat the source file to validate it exists and get metadata
@@ -156,6 +159,40 @@ func (t *TransferUseCase) Transfer(
 		return nil, fmt.Errorf("directory transfer not supported in single file mode")
 	}
 
+	// Skip transfer if destination already holds a file of the same size.
+	// This makes DAG retries idempotent: files that completed in a previous attempt
+	// are not re-transferred.
+	if t.config.SkipExisting {
+		if destStat, err := t.dest.Stat(ctx, destPath); err == nil && destStat.Size == stat.Size {
+			result.Status = entity.TransferStatusSkipped
+			result.Duration = time.Since(startTime)
+			t.logger.Info("Skipping existing file",
+				applog.F("source", sourcePath),
+				applog.F("destination", destPath),
+				applog.F("size", stat.Size),
+			)
+			if progressChan != nil {
+				progressChan <- entity.TransferProgress{
+					FileName:         stat.Name,
+					TotalBytes:       stat.Size,
+					TransferredBytes: stat.Size,
+					Status:           entity.TransferStatusSkipped,
+				}
+			}
+			return result, nil
+		}
+	}
+
+	// Determine resume capability once — backends either implement Resumer or they don't.
+	srcResumer, srcCanResume := t.source.(repository.Resumer)
+	destResumer, destCanResume := t.dest.(repository.Resumer)
+	canResume := t.config.EnableResume && srcCanResume && destCanResume
+	if t.config.EnableResume && !canResume {
+		t.logger.Warn("Resume requested but not supported by one or both storage backends, using full transfer",
+			applog.F("source", sourcePath),
+		)
+	}
+
 	// Retry loop: attempt transfer up to (RetryAttempts + 1) times
 	// This handles transient failures like network timeouts, temporary unavailability, etc.
 	var lastErr error
@@ -163,58 +200,135 @@ func (t *TransferUseCase) Transfer(
 		// Wait before retry (skip on first attempt)
 		if attempt > 0 {
 			t.logger.Warn("Retrying transfer",
-				zap.Int("attempt", attempt),
-				zap.String("source", sourcePath),
+				applog.F("attempt", attempt),
+				applog.F("source", sourcePath),
 			)
 			time.Sleep(t.config.RetryDelay)
 		}
 
-		// Open source file for reading
-		// Returns an io.ReadCloser stream - file is NOT loaded into memory
-		reader, size, err := t.source.Read(ctx, sourcePath)
+		// Check destination for a partial file and compute resume offset.
+		// Re-evaluated every attempt so each retry picks up where the last one left off.
+		resumeOffset := int64(0)
+		if canResume {
+			if destStat, err := t.dest.Stat(ctx, destPath); err == nil &&
+				destStat.Size > 0 && destStat.Size < stat.Size {
+				resumeOffset = destStat.Size
+				t.logger.InfoReqEx("Resuming interrupted transfer",
+					applog.F("source", sourcePath),
+					applog.F("resume_offset", resumeOffset),
+					applog.F("total_size", stat.Size),
+				)
+			}
+		}
+
+		// Open source file from the correct offset.
+		var reader io.ReadCloser
+		var remaining int64
+		var err error
+		if resumeOffset > 0 {
+			reader, remaining, err = srcResumer.ReadFrom(ctx, sourcePath, resumeOffset)
+		} else {
+			reader, remaining, err = t.source.Read(ctx, sourcePath)
+		}
 		if err != nil {
 			lastErr = fmt.Errorf("failed to read source file: %w", err)
-			continue // Retry on next iteration
+			continue
 		}
 
-		// Wrap reader with progress tracking
-		// This intercepts Read() calls to calculate speed and report progress
-		progressReader := &progressReader{
-			reader:       reader,
-			total:        size,
-			progressChan: progressChan,
-			fileName:     stat.Name,
-			startTime:    startTime,
-			bufferSize:   t.config.BufferSize,
+		// Checksum is only computed for full (non-resumed) transfers — we cannot
+		// hash the skipped prefix bytes without re-reading from the source.
+		var csReader *checksumReader
+		var streamReader io.Reader = reader
+		if t.config.VerifyChecksum && resumeOffset == 0 {
+			csReader = newChecksumReader(reader)
+			streamReader = csReader
+		} else if t.config.VerifyChecksum && resumeOffset > 0 {
+			t.logger.Warn("Checksum verification skipped for resumed transfer",
+				applog.F("source", sourcePath),
+				applog.F("resume_offset", resumeOffset),
+			)
 		}
 
-		// Stream data from source to destination
-		// Data flows in chunks (bufferSize) to minimize memory usage
-		err = t.dest.Write(ctx, destPath, progressReader, size)
-		reader.Close() // Always close reader, even on error
+		// Wrap reader with progress tracking.
+		// transferred starts at resumeOffset so percentage display is correct.
+		// Speed is computed from current-session bytes only (see progressReader.Read).
+		pr := &progressReader{
+			reader:        streamReader,
+			total:         stat.Size,
+			transferred:   resumeOffset,
+			initialOffset: resumeOffset,
+			progressChan:  progressChan,
+			fileName:      stat.Name,
+			startTime:     startTime,
+			bufferSize:    t.config.BufferSize,
+		}
+
+		// Stream data from source to destination.
+		if resumeOffset > 0 {
+			err = destResumer.AppendWrite(ctx, destPath, pr, remaining, resumeOffset)
+		} else {
+			err = t.dest.Write(ctx, destPath, pr, remaining)
+		}
+		reader.Close()
 
 		if err != nil {
 			lastErr = fmt.Errorf("failed to write destination file: %w", err)
-			continue // Retry on next iteration
+			continue
 		}
 
-		result.BytesTransferred = size
+		// Verify checksum when requested: compare SHA256 of sent bytes vs stored bytes
+		if t.config.VerifyChecksum && resumeOffset == 0 {
+			sourceChecksum := csReader.sum()
+
+			destReader, _, err := t.dest.Read(ctx, destPath)
+			if err != nil {
+				lastErr = fmt.Errorf("checksum verification: failed to read destination: %w", err)
+				continue
+			}
+			h := sha256.New()
+			_, hashErr := io.Copy(h, destReader)
+			_ = destReader.Close()
+			if hashErr != nil {
+				lastErr = fmt.Errorf("checksum verification: failed to hash destination: %w", hashErr)
+				continue
+			}
+			destChecksum := hex.EncodeToString(h.Sum(nil))
+
+			if sourceChecksum != destChecksum {
+				lastErr = fmt.Errorf("checksum mismatch: source=%s destination=%s", sourceChecksum, destChecksum)
+				t.logger.WarnResEx("Checksum mismatch, retrying",
+					applog.F("source", sourcePath),
+					applog.F("source_checksum", sourceChecksum),
+					applog.F("dest_checksum", destChecksum),
+				)
+				continue
+			}
+
+			result.Checksum = sourceChecksum
+			t.logger.InfoResEx("Checksum verified",
+				applog.F("source", sourcePath),
+				applog.F("checksum", sourceChecksum),
+			)
+		}
+
+		result.BytesTransferred = stat.Size
+		result.ResumedFrom = resumeOffset
 		result.Duration = time.Since(startTime)
 		result.Status = entity.TransferStatusCompleted
 
-		t.logger.Info("Transfer completed",
-			zap.String("source", sourcePath),
-			zap.String("destination", destPath),
-			zap.Int64("bytes", size),
-			zap.Duration("duration", result.Duration),
+		t.logger.InfoResEx("Transfer completed",
+			applog.F("source", sourcePath),
+			applog.F("destination", destPath),
+			applog.F("bytes", stat.Size),
+			applog.FDurationMs(result.Duration),
 		)
 
 		if progressChan != nil {
 			progressChan <- entity.TransferProgress{
 				FileName:         stat.Name,
-				TotalBytes:       size,
-				TransferredBytes: size,
-				Speed:            float64(size) / result.Duration.Seconds(),
+				TotalBytes:       stat.Size,
+				TransferredBytes: stat.Size,
+				Speed:            float64(stat.Size-resumeOffset) / result.Duration.Seconds(),
 				StartTime:        startTime,
 				Status:           entity.TransferStatusCompleted,
 			}
@@ -313,8 +427,8 @@ func (t *TransferUseCase) TransferBatch(
 	}, len(sourcePaths))
 
 	t.logger.Info("Starting batch transfer",
-		zap.Int("total_files", len(sourcePaths)),
-		zap.Int("concurrent", t.config.ConcurrentFiles),
+		applog.F("total_files", len(sourcePaths)),
+		applog.F("concurrent", t.config.ConcurrentFiles),
 	)
 
 	// Launch goroutines for each file transfer
@@ -363,16 +477,16 @@ func (t *TransferUseCase) TransferBatch(
 			// This call includes retry logic and progress reporting
 			result, err := t.Transfer(ctx, src, destPath, fileProgressChan)
 			if err != nil {
-				t.logger.Error("Transfer failed",
-					zap.String("source", src),
-					zap.String("destination", destPath),
-					zap.Error(err),
+				t.logger.ErrorResEx("Transfer failed",
+					applog.F("source", src),
+					applog.F("destination", destPath),
+					applog.FError(err),
 				)
 			} else {
-				t.logger.Info("Transfer succeeded",
-					zap.String("source", src),
-					zap.String("destination", destPath),
-					zap.Int64("bytes", result.BytesTransferred),
+				t.logger.InfoResEx("Transfer succeeded",
+					applog.F("source", src),
+					applog.F("destination", destPath),
+					applog.F("bytes", result.BytesTransferred),
 				)
 			}
 
@@ -421,8 +535,9 @@ func (t *TransferUseCase) TransferBatch(
 // (the one performing the Read operations).
 type progressReader struct {
 	reader         io.Reader                      // Underlying reader to wrap
-	total          int64                          // Total bytes to transfer
-	transferred    int64                          // Bytes transferred so far
+	total          int64                          // Total bytes to transfer (full file size)
+	transferred    int64                          // Bytes transferred so far (includes resume offset)
+	initialOffset  int64                          // Bytes already at destination before this session
 	progressChan   chan<- entity.TransferProgress // Channel for sending progress updates
 	fileName       string                         // Name of file being transferred (for progress reporting)
 	startTime      time.Time                      // Transfer start time (for speed calculation)
@@ -455,9 +570,11 @@ func (p *progressReader) Read(buf []byte) (int, error) {
 	// Send progress update if enough time has elapsed (throttling)
 	// This prevents excessive progress updates and CPU usage
 	if p.progressChan != nil && time.Since(p.lastUpdateTime) > 500*time.Millisecond {
-		// Calculate transfer metrics
+		// Calculate transfer metrics; base speed on current-session bytes only
+		// so a resumed transfer doesn't report an inflated initial speed
 		elapsed := time.Since(p.startTime).Seconds()
-		speed := float64(p.transferred) / elapsed // bytes per second
+		sessionBytes := float64(p.transferred - p.initialOffset)
+		speed := sessionBytes / elapsed // bytes per second
 		remaining := p.total - p.transferred
 
 		// Estimate time remaining based on current speed
@@ -499,4 +616,31 @@ func (p *progressReader) Close() error {
 		return closer.Close()
 	}
 	return nil
+}
+
+// checksumReader wraps an io.Reader and computes a SHA256 hash of all bytes
+// that pass through it. The hash is accumulated incrementally so there is no
+// extra memory or I/O cost — bytes are hashed as they are transferred.
+type checksumReader struct {
+	reader io.Reader
+	h      interface {
+		Write([]byte) (int, error)
+		Sum([]byte) []byte
+	}
+}
+
+func newChecksumReader(r io.Reader) *checksumReader {
+	return &checksumReader{reader: r, h: sha256.New()}
+}
+
+func (c *checksumReader) Read(p []byte) (int, error) {
+	n, err := c.reader.Read(p)
+	if n > 0 {
+		_, _ = c.h.Write(p[:n])
+	}
+	return n, err
+}
+
+func (c *checksumReader) sum() string {
+	return hex.EncodeToString(c.h.Sum(nil))
 }

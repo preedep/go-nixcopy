@@ -40,7 +40,7 @@
 
 ## 📋 ความต้องการของระบบ
 
-- Go 1.21 หรือสูงกว่า
+- Go 1.24 หรือสูงกว่า
 - การเข้าถึง Storage systems ที่ต้องการใช้งาน
 - Credentials ที่จำเป็นสำหรับแต่ละ storage
 
@@ -103,13 +103,12 @@ transfer:
   retry_attempts: 3
   retry_delay: 5s
   timeout: 30m
-  verify_checksum: false
-
-logging:
-  level: info                # debug, info, warn, error
-  format: json               # json, console
-  output_path: stdout        # stdout หรือ path ของไฟล์
+  verify_checksum: false     # SHA256 end-to-end integrity check
+  enable_resume: false       # resume interrupted transfers (local & SFTP)
+  skip_existing: false       # skip file if destination already has same size
 ```
+
+> **Note:** The `logging:` block is deprecated and no longer read. All logs are now emitted in standard-app-log v1.0 JSON format to stdout automatically. See [Application Logging](#-application-logging) below.
 
 ## 🔐 Authentication
 
@@ -310,7 +309,7 @@ nixcopy list --config config.yaml --path /remote/path --source=false
 
 ### 🎯 การใช้ CLI Parameters
 
-go-nixcopy รองรับการส่ง parameters ผ่าน command line ได้ 3 แบบ:
+go-nixcopy รองรับการส่ง parameters ได้ 4 แบบ:
 
 1. **ใช้ Config File อย่างเดียว** (แนะนำสำหรับ production)
    ```bash
@@ -330,7 +329,25 @@ go-nixcopy รองรับการส่ง parameters ผ่าน command 
      -s /source/file -d /dest/file
    ```
 
-📖 **อ่านเพิ่มเติม:** [CLI_USAGE.md](CLI_USAGE.md) - คู่มือการใช้ CLI parameters แบบละเอียด
+4. **ใช้ NIXCOPY_* Environment Variables อย่างเดียว** (แนะนำสำหรับ Kubernetes / KPO)
+   ```bash
+   export NIXCOPY_SOURCE_TYPE=sftp
+   export NIXCOPY_SOURCE_HOST=sftp.example.com
+   export NIXCOPY_SOURCE_USERNAME=user
+   export NIXCOPY_SOURCE_PASSWORD=secret
+   export NIXCOPY_DEST_TYPE=s3
+   export NIXCOPY_DEST_REGION=ap-southeast-1
+   export NIXCOPY_DEST_BUCKET=my-bucket
+   export NIXCOPY_DEST_AUTH_TYPE=web_identity
+   nixcopy transfer -s /data/file.csv -d processed/file.csv
+   ```
+
+**ลำดับความสำคัญ (Precedence):**
+```
+CLI Flags  >  NIXCOPY_* Env Vars  >  Config File  >  Defaults
+```
+
+📖 **อ่านเพิ่มเติม:** [CLI_USAGE.md](CLI_USAGE.md) - คู่มือการใช้ CLI parameters แบบละเอียด พร้อมตาราง NIXCOPY_* env vars ครบทุกตัว
 
 ### 🚀 Parallel Transfer & Wildcard Patterns
 
@@ -528,17 +545,23 @@ nixcopy list -c config.yaml -p data/ --source=false
 
 ### Output ตัวอย่าง
 
-```
-[file.zip] 45.23% | 125.45 MB/s | ETA: 0h2m15s
-[file.zip] ✓ Completed | 128.32 MB/s
+Progress lines go to **stderr** (human-readable, safe to discard in pipelines):
 
-Transfer Summary:
-  Source: /remote/data/file.zip
-  Destination: backup/file.zip
-  Bytes Transferred: 10737418240 (10240.00 MB)
-  Duration: 1m19.823s
-  Average Speed: 128.32 MB/s
-  Status: completed
+```
+[file.zip] 45.23% | 125.45 MB/s | ETA: 1m15s
+[file.zip] ✓ Completed | 128.32 MB/s
+```
+
+On completion, a single JSON line is written to **stdout** (machine-readable):
+
+```json
+{"event":"transfer_summary","total_files":3,"successful":2,"skipped":1,"failed":0,"bytes_transferred":10737418240,"duration_ms":79823,"average_speed_mbps":128.32}
+```
+
+Downstream tools (Airflow log parsers, Loki, CloudWatch Insights) filter on `event="transfer_summary"` to extract metrics without parsing human text. When files fail, a `failed_files` array is included:
+
+```json
+{"event":"transfer_summary","total_files":3,"successful":2,"skipped":0,"failed":1,"bytes_transferred":5368709120,"duration_ms":45000,"average_speed_mbps":115.6,"failed_files":[{"path":"/src/bad.csv","error":"connection reset by peer"}]}
 ```
 
 ## 🧪 การทดสอบ
@@ -546,31 +569,38 @@ Transfer Summary:
 ### รัน Unit Tests
 
 ```bash
-# รัน tests ทั้งหมด
-go test ./...
+# รัน tests ทั้งหมด (ตรงกับ CI)
+go test -race -covermode=atomic -count=1 ./...
 
 # รัน tests พร้อม verbose output
 go test -v ./...
 
 # รัน tests พร้อม coverage report
-go test -cover ./...
-go test -coverprofile=coverage.out ./...
+go test -race -covermode=atomic -coverprofile=coverage.out ./...
 go tool cover -html=coverage.out
+
+# รัน integration tests (ต้องการ MinIO และ SFTP server)
+go test -tags=integration -race -count=1 -v ./internal/infrastructure/storage/...
 
 # ใช้ Makefile
 make test
 make test-coverage
 make test-verbose
+make test-race
 ```
 
 ### Test Coverage
 
 โปรเจกต์มี unit tests ครอบคลุมส่วนสำคัญ:
 - ✅ Domain entities (pattern matching, transfer)
-- ✅ Use cases (transfer, pattern matcher)
-- ✅ Configuration และ validation
-- ✅ CLI flags และ parameter handling
-- ✅ Mock storage สำหรับ testing
+- ✅ Use cases (transfer, pattern matcher, retry, checksum, resume)
+- ✅ Skip-existing / idempotent retry (5 cases)
+- ✅ S3 multipart part-size algorithm (5 size scenarios)
+- ✅ Azure Blob block-size algorithm (5 size scenarios)
+- ✅ JSON exit summary shape and omitempty behaviour
+- ✅ `NIXCOPY_*` env var loading including `NIXCOPY_SKIP_EXISTING`
+- ✅ CLI flags including `--skip-existing` and `--resume`
+- ✅ Configuration loading and validation
 
 📖 **อ่านเพิ่มเติม:** [TESTING.md](TESTING.md) - คู่มือการทดสอบแบบละเอียด
 
@@ -675,6 +705,242 @@ go-nixcopy/
 - รองรับการถ่ายโอนหลายไฟล์พร้อมกัน
 - จำกัดจำนวน concurrent connections ได้
 - เพิ่มประสิทธิภาพการถ่ายโอน
+
+### S3 Multipart Upload
+
+ใช้ AWS SDK v2 `transfermanager` สำหรับการ upload ไปยัง S3 — ไม่มีข้อจำกัด 5 GB ของ `PutObject`:
+
+- **Block size**: dynamic — default 16 MiB, scales up เมื่อ `ceil(size / 10,000) > 16 MiB` เพื่อไม่เกิน 10,000 parts ของ S3
+- **Minimum**: 5 MiB (S3 hard limit)
+- **Concurrency**: 5 concurrent part uploads ต่อไฟล์
+- รองรับไฟล์ได้ถึง ~5 TiB
+
+### Azure Blob Parallel Block Upload
+
+ใช้ `UploadStream` พร้อม `BlockSize` และ `Concurrency` options:
+
+- **Block size**: dynamic — default 16 MiB, scales up เมื่อ `ceil(size / 50,000) > 16 MiB` เพื่อไม่เกิน 50,000 blocks ของ Azure
+- **Minimum**: 1 MiB (Azure SDK floor)
+- **Concurrency**: 5 concurrent block uploads ต่อ blob
+- รองรับ blob ได้ถึง ~190 TiB
+
+### Idempotent Retry / Skip-Existing
+
+ป้องกันการถ่ายโอนซ้ำเมื่อ Airflow DAG retry:
+
+```bash
+nixcopy transfer --skip-existing -s /data/*.csv -d processed/
+# หรือ
+export NIXCOPY_SKIP_EXISTING=true
+```
+
+- ก่อนถ่ายโอนแต่ละไฟล์ จะตรวจสอบ `Stat` ที่ปลายทาง
+- หาก destination มีขนาดเท่ากับ source → skip (status: `skipped`)
+- หากขนาดต่างกัน หรือยังไม่มีไฟล์ → transfer ปกติ
+- ปลอดภัยสำหรับ batch — รายงาน `skipped` แยกจาก `successful` ใน JSON summary
+
+### Checksum Verification
+
+ตรวจสอบความถูกต้องของข้อมูลด้วย SHA-256 แบบ end-to-end:
+
+```yaml
+transfer:
+  verify_checksum: true
+```
+
+หรือใช้ CLI flag:
+
+```bash
+nixcopy transfer --verify-checksum -s /data/file.zip -d /backup/file.zip ...
+```
+
+- คำนวณ SHA-256 ของ source ระหว่างการถ่ายโอน (ไม่มี overhead เพิ่มเติม)
+- อ่านไฟล์ปลายทางกลับมาตรวจสอบหลังเขียนสำเร็จ
+- หาก hash ไม่ตรง จะ retry อัตโนมัติ
+- `TransferResult.Checksum` เก็บค่า hex ของ SHA-256 เมื่อสำเร็จ
+
+### Resume Transfer
+
+ต่อการถ่ายโอนที่หยุดกลางคันโดยไม่ต้องเริ่มใหม่จากต้น รองรับ **Local** และ **SFTP** (S3/Azure Blob ใช้การ retry แบบปกติ):
+
+```yaml
+transfer:
+  enable_resume: true
+```
+
+หรือใช้ CLI flag:
+
+```bash
+nixcopy transfer --resume -s /data/large_file.tar.gz -d /backup/large_file.tar.gz ...
+```
+
+- ก่อน retry แต่ละครั้ง จะตรวจสอบขนาดไฟล์ปลายทาง
+- หากมีไฟล์บางส่วนอยู่แล้ว จะอ่าน source ต่อจาก offset นั้น
+- Progress แสดงเป็น % ของไฟล์ทั้งหมด (รวม bytes ที่โอนไปแล้ว)
+- `TransferResult.ResumedFrom` เก็บ byte offset ที่ต่อการโอน
+
+## 📋 Application Logging
+
+go-nixcopy emits **structured JSON logs to stdout** conforming to [standard-app-log v1.0](https://github.com/preedep/standard-app-log). Every log line contains a fixed set of standard fields plus app-specific fields merged at the top level.
+
+### Log Types
+
+| `log_type` | When emitted |
+|---|---|
+| `APP_LOG` | Application lifecycle, retry warnings, batch start |
+| `REQ_EX_LOG` | Initiating a connection or read from source storage |
+| `RES_EX_LOG` | Write completion, checksum result, transfer success/failure |
+
+### Example Output
+
+```json
+{"event_date_time":"2026-04-28T14:47:03.301Z","log_type":"REQ_EX_LOG","level":"INFO","app_id":"go-nixcopy","app_version":"1.0.0","service_id":"sftp-to-s3","service_pod_name":"nixcopy-pod-abc123","message":"Starting transfer","correlation_id":"b1753d4b-ef4e-4c84-a53b-afb377ca2cc4","request_id":"b111895b-37c8-4448-833e-3191507b5aeb","source":"/data/exports/report.csv","destination":"s3://my-bucket/processed/report.csv"}
+{"event_date_time":"2026-04-28T14:47:05.812Z","log_type":"RES_EX_LOG","level":"INFO","app_id":"go-nixcopy","app_version":"1.0.0","service_id":"sftp-to-s3","service_pod_name":"nixcopy-pod-abc123","message":"Transfer completed","correlation_id":"b1753d4b-ef4e-4c84-a53b-afb377ca2cc4","request_id":"b111895b-37c8-4448-833e-3191507b5aeb","bytes":1048576,"execution_time":2511,"source":"/data/exports/report.csv","destination":"s3://my-bucket/processed/report.csv"}
+```
+
+### Context Injection via Environment Variables
+
+These env vars are read at startup and embedded in every log line:
+
+| Env var | Field in log | Default | Purpose |
+|---|---|---|---|
+| `NIXCOPY_CORRELATION_ID` | `correlation_id` | auto-generated UUID | Carry Airflow DAG run ID or upstream trace ID through all logs |
+| `NIXCOPY_APP_ID` | `app_id` | `go-nixcopy` | Application identifier |
+| `NIXCOPY_APP_VERSION` | `app_version` | `1.0.0` | Application version (inject from image tag) |
+| `POD_NAME` | `service_pod_name` | _(empty)_ | K8s pod name via Downward API |
+
+### Kubernetes / Airflow KubernetesPodOperator Usage
+
+The golden image supports **config-file-free** operation — all storage credentials are injected via Kubernetes Secrets as `NIXCOPY_*` environment variables. No config file mount needed.
+
+```python
+from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
+from kubernetes.client import models as k8s
+
+KubernetesPodOperator(
+    task_id="transfer_sftp_to_s3",
+    image="your-registry/nixcopy:1.2.0",   # pin to a specific OCI-labeled tag
+    cmds=["./nixcopy"],
+    arguments=["transfer", "-s", "/data/exports/*.csv", "-d", "processed/"],
+    env_vars=[
+        # Observability
+        k8s.V1EnvVar(name="NIXCOPY_CORRELATION_ID", value="{{ run_id }}"),
+        k8s.V1EnvVar(name="NIXCOPY_APP_VERSION",    value="1.2.0"),
+        k8s.V1EnvVar(name="POD_NAME",               value_from=k8s.V1EnvVarSource(
+            field_ref=k8s.V1ObjectFieldSelector(field_path="metadata.name"))),
+        # Source — SFTP (credentials from K8s Secret)
+        k8s.V1EnvVar(name="NIXCOPY_SOURCE_TYPE",     value="sftp"),
+        k8s.V1EnvVar(name="NIXCOPY_SOURCE_HOST",     value_from=k8s.V1EnvVarSource(
+            secret_key_ref=k8s.V1SecretKeySelector(name="sftp-creds", key="host"))),
+        k8s.V1EnvVar(name="NIXCOPY_SOURCE_USERNAME", value_from=k8s.V1EnvVarSource(
+            secret_key_ref=k8s.V1SecretKeySelector(name="sftp-creds", key="username"))),
+        k8s.V1EnvVar(name="NIXCOPY_SOURCE_PASSWORD", value_from=k8s.V1EnvVarSource(
+            secret_key_ref=k8s.V1SecretKeySelector(name="sftp-creds", key="password"))),
+        # Destination — S3 via IRSA (no keys needed, role bound to service account)
+        k8s.V1EnvVar(name="NIXCOPY_DEST_TYPE",      value="s3"),
+        k8s.V1EnvVar(name="NIXCOPY_DEST_REGION",    value="ap-southeast-1"),
+        k8s.V1EnvVar(name="NIXCOPY_DEST_BUCKET",    value="my-data-bucket"),
+        k8s.V1EnvVar(name="NIXCOPY_DEST_AUTH_TYPE", value="web_identity"),
+    ],
+    security_context=k8s.V1PodSecurityContext(run_as_non_root=True),
+    get_logs=True,
+    is_delete_operator_pod=True,
+)
+```
+
+Logs go to stdout and are collected automatically by the K8s logging stack (Loki, CloudWatch, etc.).
+
+---
+
+## 🐳 Docker & Kubernetes Golden Image
+
+### Building the Image
+
+```bash
+# Single-arch build for local development (current platform)
+make docker-build
+
+# Multi-arch build and push to registry (linux/amd64 + linux/arm64)
+# Requires: docker buildx, a builder with multi-arch support, and a registry
+IMAGE_NAME=your-registry/nixcopy make docker-buildx
+
+# Run using NIXCOPY_* env vars (no config file needed — recommended for KPO)
+make docker-run
+
+# Run mounting a local config.yaml
+make docker-run-config
+
+# Inspect OCI labels on the built image
+docker inspect go-nixcopy:latest | jq '.[0].Config.Labels'
+
+# Debug shell (busybox — never use :debug in production)
+docker run --rm --entrypoint /busybox/sh \
+  gcr.io/distroless/static-debian12:debug
+```
+
+The image is built with:
+
+| Property | Value |
+|---|---|
+| Base image | `gcr.io/distroless/static-debian12:nonroot` |
+| User | `nonroot` (UID 65532) — set by the distroless tag, no `adduser` required |
+| Shell | None — no `sh`, no `bash`, minimal CVE surface |
+| CA certificates | Included in distroless base |
+| Architectures | `linux/amd64`, `linux/arm64` |
+| OCI labels | `version`, `revision` (git SHA), `created` (ISO-8601) |
+| Binary | Stripped (`-ldflags="-s -w" -trimpath`) — ~30% smaller than dev build |
+
+> **Debugging**: Use the `:debug` tag (`gcr.io/distroless/static-debian12:debug`) locally to get a busybox shell inside the container. Never use `:debug` in production.
+
+### OCI Labels (Traceability)
+
+Every `make docker-build` or `make docker-buildx` run injects:
+
+```
+org.opencontainers.image.version   = git describe --tags (e.g. v1.2.0-3-gabcd1234)
+org.opencontainers.image.revision  = git SHA short
+org.opencontainers.image.created   = build timestamp (UTC)
+org.opencontainers.image.title     = go-nixcopy
+org.opencontainers.image.source    = https://github.com/preedep/go-nixcopy
+```
+
+### KPO Golden Image — Configuration via Env Vars
+
+The image supports **no-config-file** mode. Inject all storage config as `NIXCOPY_*` Kubernetes Secret env vars — no YAML file mount required:
+
+| Category | Env Var | Description |
+|---|---|---|
+| **Storage type** | `NIXCOPY_SOURCE_TYPE` | `sftp`, `ftps`, `s3`, `blob`, `local` |
+| | `NIXCOPY_DEST_TYPE` | Same values |
+| **SFTP/FTPS** | `NIXCOPY_SOURCE_HOST` / `NIXCOPY_DEST_HOST` | Hostname |
+| | `NIXCOPY_SOURCE_PORT` / `NIXCOPY_DEST_PORT` | Port |
+| | `NIXCOPY_SOURCE_USERNAME` / `NIXCOPY_DEST_USERNAME` | Username |
+| | `NIXCOPY_SOURCE_PASSWORD` / `NIXCOPY_DEST_PASSWORD` | Password |
+| | `NIXCOPY_SOURCE_PRIVATE_KEY` / `NIXCOPY_DEST_PRIVATE_KEY` | Private key path |
+| **S3** | `NIXCOPY_SOURCE_REGION` / `NIXCOPY_DEST_REGION` | AWS region |
+| | `NIXCOPY_SOURCE_BUCKET` / `NIXCOPY_DEST_BUCKET` | Bucket name |
+| | `NIXCOPY_SOURCE_AUTH_TYPE` / `NIXCOPY_DEST_AUTH_TYPE` | `access_key`, `iam_role`, `web_identity`, `assume_role` |
+| | `NIXCOPY_SOURCE_ACCESS_KEY` / `NIXCOPY_DEST_ACCESS_KEY` | Access key ID |
+| | `NIXCOPY_SOURCE_SECRET_KEY` / `NIXCOPY_DEST_SECRET_KEY` | Secret key |
+| | `NIXCOPY_SOURCE_ROLE_ARN` / `NIXCOPY_DEST_ROLE_ARN` | IAM role ARN |
+| **Azure Blob** | `NIXCOPY_SOURCE_ACCOUNT_NAME` / `NIXCOPY_DEST_ACCOUNT_NAME` | Storage account |
+| | `NIXCOPY_SOURCE_CONTAINER` / `NIXCOPY_DEST_CONTAINER` | Container name |
+| | `NIXCOPY_SOURCE_AUTH_TYPE` / `NIXCOPY_DEST_AUTH_TYPE` | `shared_key`, `managed_identity`, `service_principal`, `sas_token` |
+| | `NIXCOPY_SOURCE_ACCOUNT_KEY` / `NIXCOPY_DEST_ACCOUNT_KEY` | Account key |
+| | `NIXCOPY_SOURCE_CLIENT_ID` / `NIXCOPY_DEST_CLIENT_ID` | Client ID (SP/MI) |
+| | `NIXCOPY_SOURCE_CLIENT_SECRET` / `NIXCOPY_DEST_CLIENT_SECRET` | Client secret (SP) |
+| | `NIXCOPY_SOURCE_TENANT_ID` / `NIXCOPY_DEST_TENANT_ID` | Tenant ID (SP) |
+| **Transfer** | `NIXCOPY_BUFFER_SIZE` | Buffer size in bytes (default: 33554432) |
+| | `NIXCOPY_CONCURRENT_FILES` | Parallel file count (default: 4) |
+| | `NIXCOPY_RETRY_ATTEMPTS` | Retry count (default: 3) |
+| | `NIXCOPY_RETRY_DELAY` | Retry delay e.g. `10s` (default: 5s) |
+| | `NIXCOPY_VERIFY_CHECKSUM` | `true`/`false` (default: false) |
+| | `NIXCOPY_ENABLE_RESUME` | `true`/`false` (default: false) |
+| | `NIXCOPY_SKIP_EXISTING` | `true`/`false` — skip if dest has same size (default: false) |
+
+📖 Full reference with every env var: [CLI_USAGE.md — NIXCOPY_* Environment Variables](CLI_USAGE.md#nixcopy-environment-variables)
+
+---
 
 ## 🔐 Security Best Practices
 
@@ -802,7 +1068,8 @@ transfer:
 - [AWS SDK for Go v2](https://github.com/aws/aws-sdk-go-v2) - AWS S3
 - [Cobra](https://github.com/spf13/cobra) - CLI framework
 - [Viper](https://github.com/spf13/viper) - Configuration management
-- [Zap](https://github.com/uber-go/zap) - Logging
+- [standard-app-log](https://github.com/preedep/standard-app-log) - Application log schema
+- [Zap](https://github.com/uber-go/zap) - Logging (internal infrastructure)
 
 ## 📚 เอกสารเพิ่มเติม
 
@@ -823,12 +1090,19 @@ transfer:
 - [x] Comprehensive unit tests
 - [x] Release build optimization
 - [x] Professional-grade code documentation
+- [x] SHA-256 checksum verification (end-to-end integrity)
+- [x] Resume capability สำหรับการถ่ายโอนที่ถูกขัดจอน (Local & SFTP)
+- [x] Standard application logging (standard-app-log v1.0) — structured JSON to stdout, K8s/Airflow ready
+- [x] **KPO Golden Image** — non-root user, pinned base image, correct exit codes, `NIXCOPY_*` env-var config, multi-arch (`linux/amd64` + `linux/arm64`), OCI labels
+- [x] **Distroless runtime image** — `gcr.io/distroless/static-debian12:nonroot`; no shell, no apk CVEs, CA certs included, UID 65532, stripped binary (`-s -w -trimpath`)
+- [x] **S3 multipart upload** — AWS SDK v2 `transfermanager`, dynamic part sizing, 5 concurrent parts, supports up to ~5 TiB
+- [x] **Azure Blob parallel block upload** — dynamic `BlockSize` + `Concurrency=5`, supports up to ~190 TiB
+- [x] **Idempotent retry** — `--skip-existing` / `NIXCOPY_SKIP_EXISTING` skips files where destination size matches source
+- [x] **Structured JSON exit summary** — `event=transfer_summary` JSON line to stdout; progress to stderr; `sync.WaitGroup` prevents interleave in K8s log streams
+- [x] **CI workflow** — GitHub Actions with correct Go version (`go-version-file: go.mod`), `go vet`, `go mod tidy` check, `-race -covermode=atomic`, MinIO + SFTP integration tests, `.golangci.yml` with explicit linter set
 
 ### 🚧 In Progress / Planned
-- [ ] รองรับ checksum verification (MD5, SHA256)
-- [ ] Resume capability สำหรับการถ่ายโอนที่ถูกขัดจอน
 - [ ] Web UI สำหรับการจัดการ
-- [ ] Docker image
 - [ ] รองรับ Google Cloud Storage
 - [ ] Bandwidth limiting
 - [ ] Scheduling transfers

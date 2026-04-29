@@ -8,7 +8,6 @@ import (
 )
 
 func TestApplyCliFlags_Source(t *testing.T) {
-	// Reset flags
 	sourceType = "sftp"
 	sourceHost = "sftp.example.com"
 	sourcePort = 22
@@ -16,11 +15,7 @@ func TestApplyCliFlags_Source(t *testing.T) {
 	sourcePassword = "testpass"
 
 	cfg := config.DefaultConfig()
-	err := applyCliFlags(cfg)
-
-	if err != nil {
-		t.Fatalf("applyCliFlags() error = %v", err)
-	}
+	applyCliFlags(cfg)
 
 	if cfg.Source.Type != config.StorageTypeSFTP {
 		t.Errorf("Source.Type = %v, want %v", cfg.Source.Type, config.StorageTypeSFTP)
@@ -44,7 +39,6 @@ func TestApplyCliFlags_Source(t *testing.T) {
 }
 
 func TestApplyCliFlags_Destination(t *testing.T) {
-	// Reset flags
 	destType = "s3"
 	destRegion = "us-east-1"
 	destBucket = "my-bucket"
@@ -53,11 +47,7 @@ func TestApplyCliFlags_Destination(t *testing.T) {
 	destSecretKey = "secret"
 
 	cfg := config.DefaultConfig()
-	err := applyCliFlags(cfg)
-
-	if err != nil {
-		t.Fatalf("applyCliFlags() error = %v", err)
-	}
+	applyCliFlags(cfg)
 
 	if cfg.Destination.Type != config.StorageTypeS3 {
 		t.Errorf("Destination.Type = %v, want %v", cfg.Destination.Type, config.StorageTypeS3)
@@ -81,17 +71,12 @@ func TestApplyCliFlags_Destination(t *testing.T) {
 }
 
 func TestApplyCliFlags_Transfer(t *testing.T) {
-	// Reset flags
 	bufferSize = 67108864 // 64MB
 	concurrentFiles = 8
 	retryAttempts = 5
 
 	cfg := config.DefaultConfig()
-	err := applyCliFlags(cfg)
-
-	if err != nil {
-		t.Fatalf("applyCliFlags() error = %v", err)
-	}
+	applyCliFlags(cfg)
 
 	if cfg.Transfer.BufferSize != 67108864 {
 		t.Errorf("Transfer.BufferSize = %v, want 67108864", cfg.Transfer.BufferSize)
@@ -106,8 +91,56 @@ func TestApplyCliFlags_Transfer(t *testing.T) {
 	}
 }
 
+func TestApplyCliFlags_SkipExisting(t *testing.T) {
+	resetTransferFlags()
+	skipExisting = true
+
+	cfg := config.DefaultConfig()
+	applyCliFlags(cfg)
+
+	if !cfg.Transfer.SkipExisting {
+		t.Error("Transfer.SkipExisting = false, want true when --skip-existing is set")
+	}
+}
+
+func TestApplyCliFlags_EnableResume(t *testing.T) {
+	resetTransferFlags()
+	enableResume = true
+
+	cfg := config.DefaultConfig()
+	applyCliFlags(cfg)
+
+	if !cfg.Transfer.EnableResume {
+		t.Error("Transfer.EnableResume = false, want true when --resume is set")
+	}
+}
+
+func TestApplyCliFlags_SkipExisting_False_DoesNotOverrideConfigFile(t *testing.T) {
+	resetTransferFlags()
+	skipExisting = false // flag not set
+
+	cfg := config.DefaultConfig()
+	cfg.Transfer.SkipExisting = true // loaded from config file
+	applyCliFlags(cfg)
+
+	if !cfg.Transfer.SkipExisting {
+		t.Error("Transfer.SkipExisting was cleared; false flag should not override a config-file true value")
+	}
+}
+
+// resetTransferFlags zeros out all transfer-related package-level flag vars so
+// tests don't bleed state into each other.
+func resetTransferFlags() {
+	bufferSize = 0
+	concurrentFiles = 0
+	retryAttempts = 0
+	enableResume = false
+	skipExisting = false
+	sourceType = ""
+	destType = ""
+}
+
 func TestApplyCliFlags_Defaults(t *testing.T) {
-	// Reset all flags to empty
 	sourceType = ""
 	destType = ""
 	bufferSize = 0
@@ -115,13 +148,8 @@ func TestApplyCliFlags_Defaults(t *testing.T) {
 	retryAttempts = 0
 
 	cfg := &config.Config{}
-	err := applyCliFlags(cfg)
+	applyCliFlags(cfg)
 
-	if err != nil {
-		t.Fatalf("applyCliFlags() error = %v", err)
-	}
-
-	// Check defaults are applied
 	if cfg.Transfer.BufferSize != 32*1024*1024 {
 		t.Errorf("Transfer.BufferSize = %v, want %v", cfg.Transfer.BufferSize, 32*1024*1024)
 	}

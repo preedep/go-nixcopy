@@ -3,9 +3,10 @@ package logger
 import (
 	"os"
 
-	"github.com/preedep/go-nixcopy/internal/infrastructure/config"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+
+	"github.com/preedep/go-nixcopy/internal/infrastructure/config"
 )
 
 func NewLogger(cfg *config.LoggingConfig) (*zap.Logger, error) {

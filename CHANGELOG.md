@@ -7,8 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- Initial release of go-nixcopy
+### Added — Speed & Reliability
+
+- **S3 multipart upload** (`internal/infrastructure/storage/s3.go`) — replaced single `PutObject` (5 GB hard limit) with AWS SDK v2 `transfermanager`. Block size is computed dynamically: default 16 MiB, scales up when `ceil(size / 10,000) > 16 MiB` so the 10,000-part S3 limit is never exceeded; minimum 5 MiB. Five concurrent part uploads per file. Supports files up to ~5 TiB.
+- **Azure Blob parallel block upload** (`internal/infrastructure/storage/blob.go`) — replaced empty `UploadStreamOptions{}` with `BlockSize` + `Concurrency`. Block size computed with same algorithm as S3 (50,000-block Azure limit, 1 MiB floor). Five concurrent block uploads per blob. Supports blobs up to ~190 TiB.
+- **Idempotent retry / skip-existing** (`--skip-existing` / `NIXCOPY_SKIP_EXISTING=true`) — before each transfer, `Stat` the destination; if it exists with the same byte count as the source, mark the file `skipped` without touching the destination. Files with mismatched sizes are re-transferred. Batch transfers report `skipped` separately from `successful` in the JSON summary. Safe for Airflow DAG retries.
+- **Structured JSON exit summary to stdout** (`internal/interfaces/cli/transfer.go`) — on completion, a single JSON line is written to stdout: `{"event":"transfer_summary","total_files":N,"successful":N,"skipped":N,"failed":N,"bytes_transferred":N,"duration_ms":N,"average_speed_mbps":N}`. `failed_files` array included when `failed > 0`. `average_speed_mbps` omitted (omitempty) when zero.
+- **Progress to stderr** — all `\r`-based progress lines moved from stdout to stderr. A `sync.WaitGroup` ensures the progress goroutine fully drains before the JSON summary line is written, preventing interleaving in K8s log streams.
+
+### Added — Kubernetes / KPO Golden Image
+
+- **NIXCOPY_* env-var-only config** (`internal/infrastructure/config/envloader.go`) — all storage and transfer settings can now be injected as `NIXCOPY_SOURCE_*` / `NIXCOPY_DEST_*` / `NIXCOPY_*` environment variables; no config file mount required. Precedence: CLI flags > `NIXCOPY_*` env vars > config file > defaults. Enables clean KubernetesPodOperator deployments where credentials come from Kubernetes Secrets.
+- **Multi-arch Docker image** (`Dockerfile`, `Makefile`) — build stage uses `--platform=$BUILDPLATFORM` + `GOOS`/`GOARCH` cross-compilation so a single `docker buildx` run produces both `linux/amd64` and `linux/arm64` layers. New Makefile target: `make docker-buildx` builds and pushes both platforms; `make docker-build` builds the current platform locally.
+- **OCI image labels** (`Dockerfile`) — `org.opencontainers.image.version`, `revision` (git SHA), `created` (ISO-8601 UTC), `title`, `source`, and `licenses` are injected at build time via `--build-arg`. Both `make docker-build` and `make docker-buildx` pass these automatically.
+
+### Fixed — Kubernetes / KPO Golden Image
+
+- **Distroless runtime image** (`Dockerfile`) — runtime stage switched from `alpine:3.21` to `gcr.io/distroless/static-debian12:nonroot`. No shell, no package manager, no apk CVEs. CA certificates and tzdata included in the distroless base. Non-root user (UID 65532) enforced by the `:nonroot` image tag — no `adduser` step needed. Builder updated from `golang:1.21-alpine3.21` to `golang:1.24-alpine3.21` to match `go.mod`. Binary now built with `-trimpath -ldflags="-s -w"` (strips debug symbols and path info; ~30% smaller). CI `build` job now also builds the Docker image and runs `docker run --rm go-nixcopy:ci-test --help` as a smoke test.
+- **Non-root container user** (`Dockerfile`) — runtime stage now creates a dedicated `nixcopy` system user/group and switches to it with `USER nixcopy` before the entrypoint. Pods will no longer be rejected by `runAsNonRoot: true` Pod Security Admission policies.
+- **Pinned base images** (`Dockerfile`) — builder changed from `golang:1.21-alpine` to `golang:1.21-alpine3.21`; runtime changed from `alpine:latest` to `alpine:3.21`. Golden images are now reproducible and auditable.
+- **Correct exit codes on partial failure** (`internal/interfaces/cli/transfer.go`) — when one or more files in a batch fail to transfer, the command now returns a non-nil error (`N of M file(s) failed to transfer`). Previously `runTransfer` returned `nil` even when `failCount > 0`, causing KPO to mark the Airflow task as successful despite data loss.
+
+### Added — CI / Quality
+
+- **GitHub Actions CI workflow** (`.github/workflows/ci.yml`) — four jobs: `lint` (go vet + `go mod tidy` diff check + golangci-lint), `test` (unit tests with `-race -covermode=atomic -count=1`), `integration-test` (MinIO + SFTP service containers), `build` (binary produced only after all three pass). `build` job depends on all three gates.
+- **`.golangci.yml`** — explicit linter set: `errcheck`, `staticcheck`, `unused`, `gofmt`, `goimports`, `misspell`, `unconvert`, `unparam`. Prevents accidental reliance on golangci-lint's unstable default set.
+
+### Fixed — CI
+
+- **Go version mismatch** — `go-version: "1.21"` hardcoded in all workflow jobs replaced with `go-version-file: go.mod` (go.mod declares `go 1.24`). Applies to both `ci.yml` and `release.yml`.
+- **Coverage mode** — test run now uses `-covermode=atomic` (required alongside `-race`; without it coverage numbers are unreliable under the race detector).
+- **Test caching** — added `-count=1` to unit and integration test runs to prevent Go's test cache from hiding real failures on re-runs.
+
+### Added — Tests
+
+- `internal/infrastructure/storage/s3_multipart_test.go` — 5 table-driven tests for `s3PartSizeFor`: unknown size, 1 MiB, 100 MiB, 160 GiB, 5 TiB.
+- `internal/infrastructure/storage/blob_multipart_test.go` — 5 table-driven tests for `blobBlockSizeFor`: unknown size, 1 MiB, 100 MiB, 800 GiB, 190 TiB.
+- `internal/usecase/transfer_usecase_skip_test.go` — 5 tests: same-size skips, different-size re-transfers, missing destination transfers, `SkipExisting=false` always transfers, batch with 2-of-3 skipped.
+- `internal/interfaces/cli/transfer_summary_test.go` — 4 tests: JSON field names, `average_speed_mbps` omitted when zero, `failed_files` array shape, `event` field always present.
+- `internal/infrastructure/config/envloader_test.go` — added `TestLoadFromEnv_SkipExisting` for `NIXCOPY_SKIP_EXISTING`.
+- `internal/interfaces/cli/flags_test.go` — added `TestApplyCliFlags_SkipExisting`, `TestApplyCliFlags_EnableResume`, `TestApplyCliFlags_SkipExisting_False_DoesNotOverrideConfigFile`; extracted `resetTransferFlags` helper.
+
+### Added — Previous Release
+
+- **Standard application logging (standard-app-log v1.0)** — all logs are emitted as structured JSON to stdout, conforming to the [standard-app-log v1.0](https://github.com/preedep/standard-app-log) schema. Log types used: `APP_LOG` (lifecycle, retry), `REQ_EX_LOG` (initiating reads from source), `RES_EX_LOG` (write completion, checksum result). Every entry carries `correlation_id` and `request_id` for distributed tracing. Inject context via env vars: `NIXCOPY_CORRELATION_ID`, `NIXCOPY_APP_ID`, `NIXCOPY_APP_VERSION`, `POD_NAME`. Replaces the previous Zap-based configurable logger; the `logging:` config block is deprecated and no longer read.
+- **SHA-256 checksum verification** — set `verify_checksum: true` or `--verify-checksum`; hash is computed in-flight on the source stream then compared against a re-read of the destination. A mismatch triggers automatic retry. `TransferResult.Checksum` carries the hex digest on success.
+- **Resume capability for interrupted transfers** — set `enable_resume: true` or `--resume`; before each retry attempt the destination is stat'd and, if a partial file exists, the source is read from that offset and the destination is appended rather than overwritten. Supported backends: Local, SFTP. S3 / Azure Blob / FTPS fall back to full re-transfer with a warning log. `TransferResult.ResumedFrom` records the byte offset used.
+- `repository.Resumer` interface — optional interface that storage backends implement to opt into resume support (`ReadFrom` + `AppendWrite`).
+
+### Initial release of go-nixcopy
 - Support for SFTP storage
 - Support for FTPS storage
 - Support for Azure Blob Storage

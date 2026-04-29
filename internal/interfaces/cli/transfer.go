@@ -2,21 +2,43 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
 	"github.com/preedep/go-nixcopy/internal/domain/entity"
 	"github.com/preedep/go-nixcopy/internal/infrastructure/config"
 	"github.com/preedep/go-nixcopy/internal/infrastructure/logger"
 	"github.com/preedep/go-nixcopy/internal/infrastructure/storage"
 	"github.com/preedep/go-nixcopy/internal/usecase"
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
-	"go.uber.org/zap"
 )
+
+// transferSummary is the structured JSON line written to stdout on completion.
+// Downstream tools (Airflow log parsers, Loki, CloudWatch Insights) can filter
+// on event="transfer_summary" to extract transfer metrics without parsing human text.
+type transferSummary struct {
+	Event            string       `json:"event"`
+	TotalFiles       int          `json:"total_files"`
+	Successful       int          `json:"successful"`
+	Skipped          int          `json:"skipped"`
+	Failed           int          `json:"failed"`
+	BytesTransferred int64        `json:"bytes_transferred"`
+	DurationMs       int64        `json:"duration_ms"`
+	AverageSpeedMBps float64      `json:"average_speed_mbps,omitempty"`
+	FailedFiles      []failedFile `json:"failed_files,omitempty"`
+}
+
+type failedFile struct {
+	Path  string `json:"path"`
+	Error string `json:"error"`
+}
 
 var (
 	sourcePath  string
@@ -59,6 +81,8 @@ var (
 	bufferSize      int
 	concurrentFiles int
 	retryAttempts   int
+	enableResume    bool
+	skipExisting    bool
 )
 
 var transferCmd = &cobra.Command{
@@ -75,7 +99,9 @@ func init() {
 	transferCmd.Flags().StringVarP(&sourcePath, "source", "s", "", "Source file path or pattern (supports wildcards: *.pdf, **/*.txt)")
 	transferCmd.Flags().StringSliceVar(&sourcePaths, "sources", []string{}, "Multiple source file paths (comma-separated)")
 	transferCmd.Flags().StringVarP(&destPath, "dest", "d", "", "Destination path (required)")
-	transferCmd.MarkFlagRequired("dest")
+	if err := transferCmd.MarkFlagRequired("dest"); err != nil {
+		panic(err)
+	}
 
 	// Source storage flags
 	transferCmd.Flags().StringVar(&sourceType, "source-type", "", "Source storage type (sftp, ftps, blob, s3)")
@@ -113,6 +139,8 @@ func init() {
 	transferCmd.Flags().IntVar(&bufferSize, "buffer-size", 0, "Buffer size in bytes (default: 32MB)")
 	transferCmd.Flags().IntVar(&concurrentFiles, "concurrent-files", 0, "Number of concurrent file transfers")
 	transferCmd.Flags().IntVar(&retryAttempts, "retry-attempts", 0, "Number of retry attempts")
+	transferCmd.Flags().BoolVar(&enableResume, "resume", false, "Resume interrupted transfer if destination has a partial file (local and SFTP only)")
+	transferCmd.Flags().BoolVar(&skipExisting, "skip-existing", false, "Skip transfer if destination already has a file with the same size (idempotent retries)")
 }
 
 func runTransfer(cmd *cobra.Command, args []string) error {
@@ -131,21 +159,38 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 		cfg = *config.DefaultConfig()
 	}
 
+	// Overlay environment variables (NIXCOPY_*) — env wins over config file, loses to CLI flags
+	config.LoadFromEnv(&cfg)
+
 	// Override config with CLI flags
-	if err := applyCliFlags(&cfg); err != nil {
-		return fmt.Errorf("failed to apply CLI flags: %w", err)
-	}
+	applyCliFlags(&cfg)
 
 	// Validate configuration
 	if err := validateConfig(&cfg); err != nil {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	log, err := logger.NewLogger(&cfg.Logging)
-	if err != nil {
-		return fmt.Errorf("failed to create logger: %w", err)
+	appID := os.Getenv("NIXCOPY_APP_ID")
+	if appID == "" {
+		appID = "go-nixcopy"
 	}
-	defer log.Sync()
+	appVersion := os.Getenv("NIXCOPY_APP_VERSION")
+	if appVersion == "" {
+		appVersion = "1.0.0"
+	}
+
+	log := logger.NewStandardLogger(
+		logger.WithAppID(appID),
+		logger.WithAppVersion(appVersion),
+		logger.WithServiceID(fmt.Sprintf("%s-to-%s", cfg.Source.Type, cfg.Destination.Type)),
+		logger.WithPodName(os.Getenv("POD_NAME")),
+	)
+
+	corrID := os.Getenv("NIXCOPY_CORRELATION_ID")
+	if corrID == "" {
+		corrID = logger.GenerateID()
+	}
+	log = log.WithCorrelation(corrID, logger.GenerateID())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -154,7 +199,7 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigChan
-		log.Info("Received interrupt signal, canceling transfer...")
+		log.Warn("Received interrupt signal, canceling transfer")
 		cancel()
 	}()
 
@@ -168,17 +213,17 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create destination storage: %w", err)
 	}
 
-	log.Info("Connecting to source storage", zap.String("type", string(cfg.Source.Type)))
+	log.InfoReqEx("Connecting to source storage", logger.F("type", string(cfg.Source.Type)))
 	if err := sourceStorage.Connect(ctx); err != nil {
 		return fmt.Errorf("failed to connect to source: %w", err)
 	}
-	defer sourceStorage.Disconnect(ctx)
+	defer func() { _ = sourceStorage.Disconnect(ctx) }()
 
-	log.Info("Connecting to destination storage", zap.String("type", string(cfg.Destination.Type)))
+	log.InfoReqEx("Connecting to destination storage", logger.F("type", string(cfg.Destination.Type)))
 	if err := destStorage.Connect(ctx); err != nil {
 		return fmt.Errorf("failed to connect to destination: %w", err)
 	}
-	defer destStorage.Disconnect(ctx)
+	defer func() { _ = destStorage.Disconnect(ctx) }()
 
 	transferConfig := &entity.TransferConfig{
 		BufferSize:      cfg.Transfer.BufferSize,
@@ -187,6 +232,8 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 		RetryDelay:      cfg.Transfer.RetryDelay,
 		Timeout:         cfg.Transfer.Timeout,
 		VerifyChecksum:  cfg.Transfer.VerifyChecksum,
+		EnableResume:    cfg.Transfer.EnableResume,
+		SkipExisting:    cfg.Transfer.SkipExisting,
 	}
 
 	transferUseCase := usecase.NewTransferUseCase(sourceStorage, destStorage, transferConfig, log)
@@ -216,8 +263,8 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 		matchedFiles, err := patternMatcher.MatchFiles(ctx, srcPath)
 		if err != nil {
 			log.Warn("Failed to match pattern",
-				zap.String("pattern", srcPath),
-				zap.Error(err),
+				logger.F("pattern", srcPath),
+				logger.FError(err),
 			)
 			continue
 		}
@@ -229,35 +276,43 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 	}
 
 	log.Info("Files to transfer",
-		zap.Int("count", len(filesToTransfer)),
-		zap.Int("concurrent", cfg.Transfer.ConcurrentFiles),
+		logger.F("count", len(filesToTransfer)),
+		logger.F("concurrent", cfg.Transfer.ConcurrentFiles),
 	)
 
 	progressChan := make(chan entity.TransferProgress, 100)
+	var progressWg sync.WaitGroup
+	progressWg.Add(1)
 	go func() {
+		defer progressWg.Done()
 		for progress := range progressChan {
-			if progress.Status == entity.TransferStatusInProgress {
+			switch progress.Status {
+			case entity.TransferStatusInProgress:
 				percentage := float64(progress.TransferredBytes) / float64(progress.TotalBytes) * 100
 				speedMB := progress.Speed / (1024 * 1024)
-				fmt.Printf("\r[%s] %.2f%% | %.2f MB/s | ETA: %s",
+				fmt.Fprintf(os.Stderr, "\r[%s] %.2f%% | %.2f MB/s | ETA: %s",
 					progress.FileName,
 					percentage,
 					speedMB,
 					progress.EstimatedTime.Round(time.Second),
 				)
-			} else if progress.Status == entity.TransferStatusCompleted {
+			case entity.TransferStatusCompleted:
 				speedMB := progress.Speed / (1024 * 1024)
-				fmt.Printf("\r[%s] ✓ Completed | %.2f MB/s\n",
+				fmt.Fprintf(os.Stderr, "\r[%s] ✓ Completed | %.2f MB/s\n",
 					progress.FileName,
 					speedMB,
 				)
-			} else if progress.Status == entity.TransferStatusFailed {
-				fmt.Printf("\r[%s] ✗ Failed: %v\n",
+			case entity.TransferStatusSkipped:
+				fmt.Fprintf(os.Stderr, "\r[%s] ↷ Skipped\n", progress.FileName)
+			case entity.TransferStatusFailed:
+				fmt.Fprintf(os.Stderr, "\r[%s] ✗ Failed: %v\n",
 					progress.FileName,
 					progress.Error,
 				)
 			}
 		}
+		// Terminate any partial \r line so the shell prompt appears cleanly.
+		fmt.Fprintln(os.Stderr)
 	}()
 
 	startTime := time.Now()
@@ -280,40 +335,59 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 	}
 
 	close(progressChan)
+	progressWg.Wait() // ensure all progress lines are flushed to stderr before JSON hits stdout
 	totalDuration := time.Since(startTime)
 
-	// Print summary
-	fmt.Printf("\n\n=== Transfer Summary ===\n")
-	fmt.Printf("Total Files: %d\n", len(results))
-
-	var successCount, failCount int
+	var successCount, failCount, skipCount int
 	var totalBytes int64
 
 	for _, result := range results {
-		if result.Status == entity.TransferStatusCompleted {
+		switch result.Status {
+		case entity.TransferStatusCompleted:
 			successCount++
 			totalBytes += result.BytesTransferred
-		} else {
+		case entity.TransferStatusSkipped:
+			skipCount++
+		default:
 			failCount++
 		}
 	}
 
-	fmt.Printf("Successful: %d\n", successCount)
-	fmt.Printf("Failed: %d\n", failCount)
-	fmt.Printf("Total Bytes: %d (%.2f MB)\n", totalBytes, float64(totalBytes)/(1024*1024))
-	fmt.Printf("Total Duration: %s\n", totalDuration.Round(time.Millisecond))
+	summary := transferSummary{
+		Event:            "transfer_summary",
+		TotalFiles:       len(results),
+		Successful:       successCount,
+		Skipped:          skipCount,
+		Failed:           failCount,
+		BytesTransferred: totalBytes,
+		DurationMs:       totalDuration.Milliseconds(),
+	}
 
-	if totalDuration.Seconds() > 0 {
-		fmt.Printf("Average Speed: %.2f MB/s\n", float64(totalBytes)/(1024*1024)/totalDuration.Seconds())
+	if totalDuration.Seconds() > 0 && totalBytes > 0 {
+		summary.AverageSpeedMBps = float64(totalBytes) / (1024 * 1024) / totalDuration.Seconds()
+	}
+
+	for _, result := range results {
+		if result.Status == entity.TransferStatusFailed {
+			errStr := ""
+			if result.Error != nil {
+				errStr = result.Error.Error()
+			}
+			summary.FailedFiles = append(summary.FailedFiles, failedFile{
+				Path:  result.SourcePath,
+				Error: errStr,
+			})
+		}
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(summary); err != nil {
+		return fmt.Errorf("failed to write summary: %w", err)
 	}
 
 	if failCount > 0 {
-		fmt.Printf("\nFailed Files:\n")
-		for _, result := range results {
-			if result.Status == entity.TransferStatusFailed {
-				fmt.Printf("  - %s: %v\n", result.SourcePath, result.Error)
-			}
-		}
+		return fmt.Errorf("%d of %d file(s) failed to transfer", failCount, len(results))
 	}
 
 	return nil

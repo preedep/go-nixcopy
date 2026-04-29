@@ -148,6 +148,8 @@ nixcopy transfer -c config.yaml \
 | `--buffer-size` | Buffer size in bytes | 32MB | `--buffer-size 67108864` |
 | `--concurrent-files` | Concurrent file transfers | 4 | `--concurrent-files 8` |
 | `--retry-attempts` | Number of retry attempts | 3 | `--retry-attempts 5` |
+| `--verify-checksum` | SHA-256 end-to-end integrity check | false | `--verify-checksum` |
+| `--resume` | Resume interrupted transfer from partial destination file (local & SFTP) | false | `--resume` |
 
 ---
 
@@ -253,50 +255,131 @@ nixcopy transfer -c config.yaml \
 
 ---
 
-## Environment Variables
+## NIXCOPY_* Environment Variables
 
-คุณสามารถใช้ environment variables แทนการส่ง parameters โดยตรง:
+`NIXCOPY_*` variables are **first-class configuration** — they are read automatically and overlay the config file. No `${VAR}` YAML syntax needed; no CLI flags needed either. This is the recommended approach for Kubernetes / KPO deployments where credentials are stored in Kubernetes Secrets.
 
-### ตั้งค่า Environment Variables
+### Source Storage
+
+| Env Var | Applies to | Description |
+|---|---|---|
+| `NIXCOPY_SOURCE_TYPE` | all | Storage type: `local`, `sftp`, `ftps`, `s3`, `blob` |
+| `NIXCOPY_SOURCE_BASE_PATH` | local | Base directory |
+| `NIXCOPY_SOURCE_HOST` | sftp, ftps | Hostname or IP |
+| `NIXCOPY_SOURCE_PORT` | sftp, ftps | Port number |
+| `NIXCOPY_SOURCE_USERNAME` | sftp, ftps | Username |
+| `NIXCOPY_SOURCE_PASSWORD` | sftp, ftps | Password |
+| `NIXCOPY_SOURCE_PRIVATE_KEY` | sftp | Path to private key file |
+| `NIXCOPY_SOURCE_PRIVATE_KEY_PASS` | sftp | Private key passphrase |
+| `NIXCOPY_SOURCE_TIMEOUT` | sftp, ftps | Connection timeout (e.g. `30s`, `2m`) |
+| `NIXCOPY_SOURCE_MAX_PACKET_SIZE` | sftp | Max SFTP packet size (default: 32768) |
+| `NIXCOPY_SOURCE_TLS_MODE` | ftps | `explicit` or `implicit` |
+| `NIXCOPY_SOURCE_SKIP_VERIFY` | ftps | Skip TLS cert verify: `true`/`false` |
+| `NIXCOPY_SOURCE_REGION` | s3 | AWS region (e.g. `ap-southeast-1`) |
+| `NIXCOPY_SOURCE_BUCKET` | s3 | S3 bucket name |
+| `NIXCOPY_SOURCE_ENDPOINT` | s3, blob | Custom endpoint URL |
+| `NIXCOPY_SOURCE_USE_PATH_STYLE` | s3 | Path-style URLs (MinIO): `true`/`false` |
+| `NIXCOPY_SOURCE_AUTH_TYPE` | s3, blob | Auth type (see tables below) |
+| `NIXCOPY_SOURCE_ACCESS_KEY` | s3 | AWS access key ID |
+| `NIXCOPY_SOURCE_SECRET_KEY` | s3 | AWS secret access key |
+| `NIXCOPY_SOURCE_SESSION_TOKEN` | s3 | AWS session token (STS) |
+| `NIXCOPY_SOURCE_ROLE_ARN` | s3 | IAM role ARN (`assume_role` / `web_identity`) |
+| `NIXCOPY_SOURCE_ROLE_SESSION_NAME` | s3 | Role session name |
+| `NIXCOPY_SOURCE_EXTERNAL_ID` | s3 | External ID for cross-account roles |
+| `NIXCOPY_SOURCE_WEB_IDENTITY_TOKEN_FILE` | s3 | Token file path (IRSA: `/var/run/secrets/eks.amazonaws.com/serviceaccount/token`) |
+| `NIXCOPY_SOURCE_PROFILE` | s3 | AWS credentials profile name |
+| `NIXCOPY_SOURCE_ACCOUNT_NAME` | blob | Azure storage account name |
+| `NIXCOPY_SOURCE_CONTAINER` | blob | Azure container name |
+| `NIXCOPY_SOURCE_ACCOUNT_KEY` | blob | Azure account key (`shared_key`) |
+| `NIXCOPY_SOURCE_SAS_TOKEN` | blob | SAS token (`sas_token`) |
+| `NIXCOPY_SOURCE_CONNECTION_STRING` | blob | Connection string (`connection_string`) |
+| `NIXCOPY_SOURCE_TENANT_ID` | blob | Azure tenant ID (`service_principal`) |
+| `NIXCOPY_SOURCE_CLIENT_ID` | blob | Azure client ID (SP / user-assigned MI) |
+| `NIXCOPY_SOURCE_CLIENT_SECRET` | blob | Azure client secret (`service_principal`) |
+| `NIXCOPY_SOURCE_USE_MANAGED_IDENTITY` | blob | Enable managed identity: `true`/`false` |
+
+### Destination Storage
+
+Same set of variables with `NIXCOPY_DEST_` prefix:
+
+| Env Var | Applies to | Description |
+|---|---|---|
+| `NIXCOPY_DEST_TYPE` | all | Storage type: `local`, `sftp`, `ftps`, `s3`, `blob` |
+| `NIXCOPY_DEST_BASE_PATH` | local | Base directory |
+| `NIXCOPY_DEST_HOST` | sftp, ftps | Hostname or IP |
+| `NIXCOPY_DEST_PORT` | sftp, ftps | Port number |
+| `NIXCOPY_DEST_USERNAME` | sftp, ftps | Username |
+| `NIXCOPY_DEST_PASSWORD` | sftp, ftps | Password |
+| `NIXCOPY_DEST_PRIVATE_KEY` | sftp | Path to private key file |
+| `NIXCOPY_DEST_PRIVATE_KEY_PASS` | sftp | Private key passphrase |
+| `NIXCOPY_DEST_TIMEOUT` | sftp, ftps | Connection timeout |
+| `NIXCOPY_DEST_MAX_PACKET_SIZE` | sftp | Max SFTP packet size |
+| `NIXCOPY_DEST_TLS_MODE` | ftps | `explicit` or `implicit` |
+| `NIXCOPY_DEST_SKIP_VERIFY` | ftps | Skip TLS cert verify |
+| `NIXCOPY_DEST_REGION` | s3 | AWS region |
+| `NIXCOPY_DEST_BUCKET` | s3 | S3 bucket name |
+| `NIXCOPY_DEST_ENDPOINT` | s3, blob | Custom endpoint URL |
+| `NIXCOPY_DEST_USE_PATH_STYLE` | s3 | Path-style URLs |
+| `NIXCOPY_DEST_AUTH_TYPE` | s3, blob | Auth type |
+| `NIXCOPY_DEST_ACCESS_KEY` | s3 | AWS access key ID |
+| `NIXCOPY_DEST_SECRET_KEY` | s3 | AWS secret access key |
+| `NIXCOPY_DEST_SESSION_TOKEN` | s3 | AWS session token |
+| `NIXCOPY_DEST_ROLE_ARN` | s3 | IAM role ARN |
+| `NIXCOPY_DEST_ROLE_SESSION_NAME` | s3 | Role session name |
+| `NIXCOPY_DEST_EXTERNAL_ID` | s3 | External ID |
+| `NIXCOPY_DEST_WEB_IDENTITY_TOKEN_FILE` | s3 | Token file path (IRSA) |
+| `NIXCOPY_DEST_PROFILE` | s3 | AWS credentials profile |
+| `NIXCOPY_DEST_ACCOUNT_NAME` | blob | Azure storage account name |
+| `NIXCOPY_DEST_CONTAINER` | blob | Azure container name |
+| `NIXCOPY_DEST_ACCOUNT_KEY` | blob | Azure account key |
+| `NIXCOPY_DEST_SAS_TOKEN` | blob | SAS token |
+| `NIXCOPY_DEST_CONNECTION_STRING` | blob | Connection string |
+| `NIXCOPY_DEST_TENANT_ID` | blob | Azure tenant ID |
+| `NIXCOPY_DEST_CLIENT_ID` | blob | Azure client ID |
+| `NIXCOPY_DEST_CLIENT_SECRET` | blob | Azure client secret |
+| `NIXCOPY_DEST_USE_MANAGED_IDENTITY` | blob | Enable managed identity |
+
+### Transfer Settings
+
+| Env Var | Default | Description |
+|---|---|---|
+| `NIXCOPY_BUFFER_SIZE` | `33554432` | Transfer buffer in bytes (32 MB) |
+| `NIXCOPY_CONCURRENT_FILES` | `4` | Parallel file transfers |
+| `NIXCOPY_RETRY_ATTEMPTS` | `3` | Max retry count per file |
+| `NIXCOPY_RETRY_DELAY` | `5s` | Delay between retries (Go duration: `5s`, `1m`) |
+| `NIXCOPY_TIMEOUT` | `30m` | Per-transfer timeout |
+| `NIXCOPY_VERIFY_CHECKSUM` | `false` | SHA-256 end-to-end integrity check |
+| `NIXCOPY_ENABLE_RESUME` | `false` | Resume partial transfers (local & SFTP) |
+
+### Observability / Context
+
+| Env Var | Log field | Default | Purpose |
+|---|---|---|---|
+| `NIXCOPY_CORRELATION_ID` | `correlation_id` | auto UUID | Carry Airflow DAG run ID through all log lines |
+| `NIXCOPY_APP_ID` | `app_id` | `go-nixcopy` | Application identifier |
+| `NIXCOPY_APP_VERSION` | `app_version` | `1.0.0` | Inject from image tag |
+| `POD_NAME` | `service_pod_name` | _(empty)_ | K8s Downward API pod name |
+
+### Example — Env-var-only (no config file, ideal for KPO)
 
 ```bash
-# Source credentials
-export SFTP_PASSWORD="MySecretPassword"
-export SOURCE_PRIVATE_KEY="~/.ssh/id_rsa"
+export NIXCOPY_SOURCE_TYPE=sftp
+export NIXCOPY_SOURCE_HOST=sftp.example.com
+export NIXCOPY_SOURCE_PORT=22
+export NIXCOPY_SOURCE_USERNAME=sftpuser
+export NIXCOPY_SOURCE_PASSWORD=secret
 
-# Destination credentials
-export AWS_ACCESS_KEY_ID="AKIAIOSFODNN7EXAMPLE"
-export AWS_SECRET_ACCESS_KEY="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-export AWS_REGION="ap-southeast-1"
+export NIXCOPY_DEST_TYPE=s3
+export NIXCOPY_DEST_REGION=ap-southeast-1
+export NIXCOPY_DEST_BUCKET=my-bucket
+export NIXCOPY_DEST_AUTH_TYPE=web_identity   # IRSA — no keys needed
 
-# Azure credentials
-export AZURE_STORAGE_ACCOUNT="mystorageaccount"
-export AZURE_STORAGE_KEY="your-storage-key"
-export AZURE_TENANT_ID="your-tenant-id"
-export AZURE_CLIENT_ID="your-client-id"
-export AZURE_CLIENT_SECRET="your-client-secret"
+nixcopy transfer -s "/data/exports/*.csv" -d processed/
 ```
 
-### ใช้งานกับ CLI
+### ${VAR} Substitution in YAML (alternative)
 
-```bash
-# ใช้ environment variables
-nixcopy transfer \
-  --source-type sftp \
-  --source-host sftp.example.com \
-  --source-username user \
-  --source-password "$SFTP_PASSWORD" \
-  -s /data/file.txt \
-  --dest-type s3 \
-  --dest-region "$AWS_REGION" \
-  --dest-bucket my-bucket \
-  --dest-auth-type access_key \
-  --dest-access-key "$AWS_ACCESS_KEY_ID" \
-  --dest-secret-key "$AWS_SECRET_ACCESS_KEY" \
-  -d /backup/file.txt
-```
-
-### ใช้กับ Config File
+If you prefer a config file but want to keep secrets out of it, you can still use `${VAR}` syntax inside YAML values — these are expanded at load time:
 
 ```yaml
 source:
@@ -304,7 +387,7 @@ source:
   sftp:
     host: sftp.example.com
     username: user
-    password: ${SFTP_PASSWORD}
+    password: ${SFTP_PASSWORD}         # expanded from shell env
 
 destination:
   type: s3
@@ -322,20 +405,21 @@ destination:
 
 เมื่อมีการตั้งค่าหลายแหล่ง ระบบจะใช้ค่าตามลำดับความสำคัญดังนี้:
 
-1. **CLI Flags** (สูงสุด) - Override ทุกอย่าง
-2. **Environment Variables** - ใช้เมื่อไม่มี CLI flags
-3. **Config File** - ใช้เมื่อไม่มี CLI flags และ env vars
-4. **Default Values** (ต่ำสุด) - ใช้เมื่อไม่มีการตั้งค่าใดๆ
+1. **CLI Flags** (สูงสุด) — override ทุกอย่าง
+2. **`NIXCOPY_*` Environment Variables** — overlay บน config file
+3. **Config File** (`-c config.yaml`) — ค่าที่โหลดจากไฟล์ YAML
+4. **Default Values** (ต่ำสุด) — ใช้เมื่อไม่มีการตั้งค่าใดๆ
 
 ### ตัวอย่าง
 
 ```bash
 # config.yaml มี buffer_size = 32MB
-# CLI flag ระบุ --buffer-size 67108864 (64MB)
-# ผลลัพธ์: ใช้ 64MB (จาก CLI flag)
+# NIXCOPY_BUFFER_SIZE=67108864 (64MB)
+# CLI flag --buffer-size 134217728 (128MB)
+# ผลลัพธ์: ใช้ 128MB (จาก CLI flag)
 
-nixcopy transfer -c config.yaml \
-  --buffer-size 67108864 \
+NIXCOPY_BUFFER_SIZE=67108864 nixcopy transfer -c config.yaml \
+  --buffer-size 134217728 \
   -s /source/file \
   -d /dest/file
 ```
@@ -396,6 +480,51 @@ nixcopy transfer -c config.yaml --help
 nixcopy transfer -c config.yaml -v -s /file -d /file
 ```
 
+### 6. SHA-256 Checksum Verification
+
+ตรวจสอบความสมบูรณ์ของข้อมูลหลังการถ่ายโอน:
+
+```bash
+# เปิด checksum ผ่าน CLI flag
+nixcopy transfer \
+  --source-type local --dest-type sftp \
+  --dest-host sftp.example.com --dest-username user --dest-password pass \
+  --verify-checksum \
+  -s /data/archive.tar.gz -d /backup/archive.tar.gz
+```
+
+ผ่าน config file:
+
+```yaml
+transfer:
+  verify_checksum: true
+```
+
+> **หมายเหตุ**: checksum จะถูกข้ามเมื่อใช้ `--resume` และมีไฟล์บางส่วนอยู่แล้ว
+
+### 7. Resume Interrupted Transfer
+
+ต่อการถ่ายโอนที่หยุดกลางคัน (รองรับ Local และ SFTP เท่านั้น):
+
+```bash
+# ต่อการโอนที่หยุดกลางคัน
+nixcopy transfer \
+  --source-type local --dest-type sftp \
+  --dest-host sftp.example.com --dest-username user --dest-password pass \
+  --resume \
+  -s /data/10gb_file.tar.gz -d /backup/10gb_file.tar.gz
+```
+
+ผ่าน config file:
+
+```yaml
+transfer:
+  enable_resume: true
+  retry_attempts: 5
+```
+
+> **หมายเหตุ**: หาก backend ปลายทางเป็น S3 หรือ Azure Blob จะ fallback เป็น full transfer โดยอัตโนมัติ
+
 ---
 
 ## 🔍 Debugging
@@ -447,7 +576,7 @@ A: ไม่จำเป็น คุณสามารถใช้ CLI flags �
 A: ได้ CLI flags มีความสำคัญสูงกว่า config file
 
 **Q: ใช้ environment variables ได้ไหม?**  
-A: ได้ ทั้งใน config file (${VAR_NAME}) และใน CLI flags
+A: ได้ 2 รูปแบบ: (1) `NIXCOPY_*` env vars อ่านโดยตรงโดย nixcopy (แนะนำสำหรับ K8s/KPO); (2) `${VAR}` ใน YAML config file ที่ถูก expand ตอน load
 
 **Q: จะเก็บ passwords อย่างปลอดภัยได้อย่างไร?**  
 A: ใช้ environment variables, AWS Secrets Manager, หรือ Azure Key Vault

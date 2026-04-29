@@ -10,7 +10,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
+
 	"github.com/preedep/go-nixcopy/internal/domain/entity"
 	"github.com/preedep/go-nixcopy/internal/domain/repository"
 	appconfig "github.com/preedep/go-nixcopy/internal/infrastructure/config"
@@ -62,15 +66,34 @@ func (s *S3Storage) Connect(ctx context.Context) error {
 		}
 		awsCfg, err = config.LoadDefaultConfig(ctx, configOptions...)
 		if err != nil {
-			return fmt.Errorf("failed to load AWS config: %w", err)
+			return fmt.Errorf("failed to load AWS base config for assume_role: %w", err)
 		}
+		stsClient := sts.NewFromConfig(awsCfg)
+		provider := stscreds.NewAssumeRoleProvider(stsClient, s.config.RoleARN, func(o *stscreds.AssumeRoleOptions) {
+			if s.config.RoleSessionName != "" {
+				o.RoleSessionName = s.config.RoleSessionName
+			}
+			if s.config.ExternalID != "" {
+				o.ExternalID = aws.String(s.config.ExternalID)
+			}
+		})
+		awsCfg.Credentials = aws.NewCredentialsCache(provider)
 
 	case appconfig.S3AuthWebIdentity:
 		if s.config.RoleARN == "" || s.config.WebIdentityTokenFile == "" {
 			return fmt.Errorf("role_arn and web_identity_token_file are required for web_identity auth type")
 		}
-		// Web identity token will be automatically picked up from environment or token file
 		awsCfg, err = config.LoadDefaultConfig(ctx, configOptions...)
+		if err != nil {
+			return fmt.Errorf("failed to load AWS base config for web_identity: %w", err)
+		}
+		stsClient := sts.NewFromConfig(awsCfg)
+		wiProvider := stscreds.NewWebIdentityRoleProvider(
+			stsClient,
+			s.config.RoleARN,
+			stscreds.IdentityTokenFile(s.config.WebIdentityTokenFile),
+		)
+		awsCfg.Credentials = aws.NewCredentialsCache(wiProvider)
 
 	default:
 		awsCfg, err = config.LoadDefaultConfig(ctx, configOptions...)
@@ -188,6 +211,13 @@ func (s *S3Storage) Stat(ctx context.Context, path string) (*entity.FileInfo, er
 	}, nil
 }
 
+const (
+	s3MinPartSize       = int64(5 * 1024 * 1024)  // 5 MB — S3 hard minimum per part
+	s3DefaultPartSize   = int64(16 * 1024 * 1024) // 16 MB — good default for most file sizes
+	s3MaxParts          = int64(10000)            // S3 limit: max 10,000 parts per upload
+	s3UploadConcurrency = 5                       // concurrent part uploads within one file
+)
+
 func (s *S3Storage) Write(ctx context.Context, path string, reader io.Reader, size int64) error {
 	if s.s3Client == nil {
 		return fmt.Errorf("S3 client not connected")
@@ -195,18 +225,40 @@ func (s *S3Storage) Write(ctx context.Context, path string, reader io.Reader, si
 
 	key := strings.TrimPrefix(path, "/")
 
-	input := &s3.PutObjectInput{
+	partSize := s3PartSizeFor(size)
+
+	tm := transfermanager.New(s.s3Client, func(o *transfermanager.Options) {
+		o.PartSizeBytes = partSize
+		o.Concurrency = s3UploadConcurrency
+	})
+
+	_, err := tm.UploadObject(ctx, &transfermanager.UploadObjectInput{
 		Bucket: aws.String(s.config.Bucket),
 		Key:    aws.String(key),
 		Body:   reader,
-	}
-
-	_, err := s.s3Client.PutObject(ctx, input)
+	})
 	if err != nil {
-		return fmt.Errorf("failed to put object: %w", err)
+		return fmt.Errorf("failed to upload object: %w", err)
 	}
 
 	return nil
+}
+
+// s3PartSizeFor returns the optimal multipart upload part size for a file of
+// the given size. Rules: >= s3MinPartSize, and size/partSize <= s3MaxParts.
+// When size <= 0 (unknown), the default is returned.
+func s3PartSizeFor(size int64) int64 {
+	partSize := s3DefaultPartSize
+	if size > 0 {
+		required := (size + s3MaxParts - 1) / s3MaxParts
+		if required > partSize {
+			partSize = required
+		}
+	}
+	if partSize < s3MinPartSize {
+		partSize = s3MinPartSize
+	}
+	return partSize
 }
 
 func (s *S3Storage) CreateDirectory(ctx context.Context, path string) error {

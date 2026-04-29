@@ -3,14 +3,16 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
 	"github.com/preedep/go-nixcopy/internal/domain/repository"
 	"github.com/preedep/go-nixcopy/internal/infrastructure/config"
 	"github.com/preedep/go-nixcopy/internal/infrastructure/logger"
 	"github.com/preedep/go-nixcopy/internal/infrastructure/storage"
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var (
@@ -47,16 +49,23 @@ func runList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	log, err := logger.NewLogger(&cfg.Logging)
-	if err != nil {
-		return fmt.Errorf("failed to create logger: %w", err)
+	appID := os.Getenv("NIXCOPY_APP_ID")
+	if appID == "" {
+		appID = "go-nixcopy"
 	}
-	defer log.Sync()
+	log := logger.NewStandardLogger(
+		logger.WithAppID(appID),
+		logger.WithAppVersion(os.Getenv("NIXCOPY_APP_VERSION")),
+		logger.WithPodName(os.Getenv("POD_NAME")),
+	)
 
 	ctx := context.Background()
 
+	log.InfoReqEx("Listing storage", logger.F("path", listPath))
+
 	var storageSystem repository.Storage
 	var storageType string
+	var err error
 
 	if listSource {
 		storageSystem, err = storage.NewStorageFromSourceConfig(&cfg.Source)
@@ -73,7 +82,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	if err := storageSystem.Connect(ctx); err != nil {
 		return fmt.Errorf("failed to connect to storage: %w", err)
 	}
-	defer storageSystem.Disconnect(ctx)
+	defer func() { _ = storageSystem.Disconnect(ctx) }()
 
 	files, err := storageSystem.List(ctx, listPath)
 	if err != nil {

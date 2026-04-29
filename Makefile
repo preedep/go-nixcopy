@@ -1,8 +1,12 @@
-.PHONY: build clean test install run help deps fmt lint
+.PHONY: build clean test install run help deps fmt lint docker-build docker-buildx docker-run
 
 BINARY_NAME=nixcopy
 BINARY_PATH=./bin/$(BINARY_NAME)
 MAIN_PATH=./cmd/nixcopy/main.go
+IMAGE_NAME ?= go-nixcopy
+VERSION     ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+GIT_COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BUILD_DATE  ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 help: ## แสดงความช่วยเหลือ
 	@echo "Available commands:"
@@ -92,12 +96,36 @@ release-darwin: ## Build release for macOS ARM64
 release-windows: ## Build release for Windows AMD64
 	./build-release.sh windows amd64
 
-docker-build: ## Build Docker image
-	@echo "Building Docker image..."
-	docker build -t go-nixcopy:latest .
+docker-build: ## Build Docker image for current platform with OCI labels
+	@echo "Building Docker image $(IMAGE_NAME):$(VERSION)..."
+	docker build \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg GIT_COMMIT=$(GIT_COMMIT) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		-t $(IMAGE_NAME):$(VERSION) \
+		-t $(IMAGE_NAME):latest \
+		.
 
-docker-run: ## รัน Docker container
-	docker run --rm -v $(PWD)/config.yaml:/app/config.yaml go-nixcopy:latest
+docker-buildx: ## Build and push multi-arch image (linux/amd64 + linux/arm64) — requires buildx and a registry
+	@echo "Building multi-arch image $(IMAGE_NAME):$(VERSION)..."
+	docker buildx build \
+		--platform linux/amd64,linux/arm64 \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg GIT_COMMIT=$(GIT_COMMIT) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		-t $(IMAGE_NAME):$(VERSION) \
+		-t $(IMAGE_NAME):latest \
+		--push \
+		.
+
+docker-run: ## Run Docker container using NIXCOPY_* env vars (no config file needed)
+	docker run --rm \
+		-e NIXCOPY_SOURCE_TYPE \
+		-e NIXCOPY_DEST_TYPE \
+		$(IMAGE_NAME):latest
+
+docker-run-config: ## Run Docker container mounting a local config.yaml
+	docker run --rm -v $(PWD)/config.yaml:/config.yaml $(IMAGE_NAME):latest transfer --config /config.yaml
 
 example-sftp-s3: ## รันตัวอย่าง SFTP to S3
 	$(BINARY_PATH) transfer -c examples/sftp-to-s3.yaml -s /remote/file.txt -d backup/file.txt

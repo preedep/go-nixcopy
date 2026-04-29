@@ -39,12 +39,22 @@ func (fp *FilePattern) MatchFull(path string) bool {
 	}
 
 	if fp.IsRecursive {
-		pattern := strings.ReplaceAll(fp.Pattern, "**", "*")
-		matched, err := filepath.Match(pattern, path)
-		if err != nil {
+		patternParts := strings.Split(fp.Pattern, "**")
+		if len(patternParts) != 2 {
 			return false
 		}
-		return matched
+		prefix := strings.TrimSuffix(patternParts[0], "/")
+		suffix := strings.TrimPrefix(patternParts[1], "/")
+		if prefix != "" && !strings.HasPrefix(path, prefix) {
+			return false
+		}
+		if suffix != "" {
+			matched, err := filepath.Match(suffix, filepath.Base(path))
+			if err != nil || !matched {
+				return false
+			}
+		}
+		return true
 	}
 
 	matched, err := filepath.Match(fp.Pattern, path)
