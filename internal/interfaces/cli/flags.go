@@ -56,6 +56,9 @@ func applyCliFlags(cfg *config.Config) {
 		if sourcePassword != "" {
 			cfg.Source.FTPS.Password = sourcePassword
 		}
+		if sourceTLSMode != "" {
+			cfg.Source.FTPS.TLSMode = sourceTLSMode
+		}
 		if cfg.Source.FTPS.Timeout == 0 {
 			cfg.Source.FTPS.Timeout = 30 * time.Second
 		}
@@ -152,6 +155,9 @@ func applyCliFlags(cfg *config.Config) {
 		if destPassword != "" {
 			cfg.Destination.FTPS.Password = destPassword
 		}
+		if destTLSMode != "" {
+			cfg.Destination.FTPS.TLSMode = destTLSMode
+		}
 		if cfg.Destination.FTPS.Timeout == 0 {
 			cfg.Destination.FTPS.Timeout = 30 * time.Second
 		}
@@ -238,6 +244,15 @@ func applyCliFlags(cfg *config.Config) {
 	}
 }
 
+func validateTLSMode(mode, side string) error {
+	switch mode {
+	case "", "explicit", "implicit":
+		return nil
+	default:
+		return fmt.Errorf("invalid %s FTPS tls-mode %q: use explicit or implicit", side, mode)
+	}
+}
+
 func validateConfig(cfg *config.Config) error {
 	// Validate source
 	if cfg.Source.Type == "" {
@@ -262,6 +277,9 @@ func validateConfig(cfg *config.Config) error {
 		}
 		if cfg.Source.FTPS.Host == "" {
 			return fmt.Errorf("source FTPS host is required")
+		}
+		if err := validateTLSMode(cfg.Source.FTPS.TLSMode, "source"); err != nil {
+			return err
 		}
 
 	case config.StorageTypeS3:
@@ -310,6 +328,9 @@ func validateConfig(cfg *config.Config) error {
 		}
 		if cfg.Destination.FTPS.Host == "" {
 			return fmt.Errorf("destination FTPS host is required")
+		}
+		if err := validateTLSMode(cfg.Destination.FTPS.TLSMode, "destination"); err != nil {
+			return err
 		}
 
 	case config.StorageTypeS3:

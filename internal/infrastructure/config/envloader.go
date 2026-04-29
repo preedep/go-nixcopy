@@ -6,22 +6,28 @@ import (
 	"time"
 )
 
-// LoadFromEnv overlays NIXCOPY_* environment variables onto cfg.
+// LoadFromEnv overlays NIXCOPY_* env vars onto cfg: sets source/dest types and
+// transfer settings, then applies backend-specific vars for whatever type is set.
 // Precedence: CLI flags > env vars > config file > defaults.
-// This enables KubernetesPodOperator deployments where all credentials
-// are injected via Kubernetes Secrets without mounting a config file.
+// When the type is supplied via a CLI flag rather than NIXCOPY_SOURCE/DEST_TYPE,
+// call ApplyBackendEnv after setting the type so backend vars land on the right backend.
 func LoadFromEnv(cfg *Config) {
 	if v := os.Getenv("NIXCOPY_SOURCE_TYPE"); v != "" {
 		cfg.Source.Type = StorageType(v)
 	}
-	applySourceEnv(&cfg.Source)
-
 	if v := os.Getenv("NIXCOPY_DEST_TYPE"); v != "" {
 		cfg.Destination.Type = StorageType(v)
 	}
-	applyDestEnv(&cfg.Destination)
-
 	applyTransferEnv(&cfg.Transfer)
+	ApplyBackendEnv(cfg)
+}
+
+// ApplyBackendEnv applies backend-specific NIXCOPY_* env vars using the type
+// already set on cfg. Call this after the final source/dest type is resolved
+// (e.g. after CLI flags have set the type) so vars go to the correct backend.
+func ApplyBackendEnv(cfg *Config) {
+	applySourceEnv(&cfg.Source)
+	applyDestEnv(&cfg.Destination)
 }
 
 func applySourceEnv(src *SourceConfig) {

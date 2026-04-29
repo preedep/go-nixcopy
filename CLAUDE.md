@@ -73,6 +73,8 @@ cmd/nixcopy/main.go
 - `list.go` — `list` subcommand for browsing storage
 - `flags.go` — shared flag definitions and parsing helpers
 
+**Flag description convention**: every flag that has a corresponding `NIXCOPY_*` env var must include `(env: NIXCOPY_VAR)` at the end of its description string. The canonical mapping is in `internal/infrastructure/config/envloader.go`.
+
 ---
 
 ## Adding a New Storage Backend
@@ -177,6 +179,8 @@ See [PARALLEL_TRANSFER.md](PARALLEL_TRANSFER.md) for batch, multi-pattern, and s
 ## Testing
 
 Unit tests use `MockStorage` (no real credentials needed). See [TESTING.md](TESTING.md) for full examples.
+
+CLI flag tests (`internal/interfaces/cli/flags_test.go`) operate on package-level flag vars. Call `resetTransferFlags()` at the start of every CLI test to prevent state bleed between tests.
 
 ```bash
 go test ./internal/usecase/... -run TestPatternMatcher   # specific test

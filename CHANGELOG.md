@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — FTPS TLS Mode (Enterprise)
+
+- **`--source-tls-mode` / `--dest-tls-mode` CLI flags** (`internal/interfaces/cli/transfer.go`) — accept `explicit` (STARTTLS on port 21) or `implicit` (TLS-first on port 990). Empty string leaves any value already loaded from the config file or env var unchanged.
+- **`NIXCOPY_SOURCE_TLS_MODE` / `NIXCOPY_DEST_TLS_MODE` env vars** — same values; applied via `config.ApplyBackendEnv`, consistent with all other per-backend env vars.
+- **`validateTLSMode`** helper (`internal/interfaces/cli/flags.go`) — rejects any value other than `""`, `"explicit"`, `"implicit"` with a clear error at startup.
+- **Unit tests** (`internal/interfaces/cli/ftps_tls_mode_test.go`) — 13 tests covering explicit/implicit source+dest, empty-no-override, `validateConfig` invalid/valid modes, env var path, and CLI-over-env precedence.
+
+### Added — Tests (Coverage Improvements)
+
+- **`internal/infrastructure/logger/applog_test.go`** — 22 tests: all log methods (`Info`/`Warn`/`Error`/`Debug`, `InfoReqEx`/`InfoResEx`/`WarnResEx`/`ErrorReqEx`/`ErrorResEx`), field helpers (`F`/`FError`/`FDurationMs`), `WithCorrelation`/`WithRequest`/`WithTrace`, `NopLogger`, `GenerateID` format/uniqueness, extra fields, parent immutability. Raises logger coverage from 0% → ~72%.
+- **`internal/infrastructure/storage/factory_test.go`** — `NewStorageFromSourceConfig` + `NewStorageFromDestConfig` for all 5 backends, nil-config errors, unknown type errors.
+- **`internal/infrastructure/storage/local_unit_test.go`** — full `LocalStorage` coverage using `t.TempDir()`: Connect, Disconnect, List, Read, Write, Delete, Stat, CreateDirectory, ReadFrom, AppendWrite — no external dependencies.
+- **`internal/infrastructure/storage/ftps_nil_client_test.go`** — FTPS nil-client guards: List/Read/Stat/Delete/Disconnect/Write.
+- **`internal/infrastructure/storage/blob_nil_client_test.go`** — Azure Blob nil-client guards: List/Read/Stat/Write/Delete; Disconnect/CreateDirectory no-ops.
+- **`internal/infrastructure/storage/s3_nil_client_test.go`** — S3 nil-client guards: List/Read/Stat/Write/Delete; Disconnect/CreateDirectory no-ops.
+- **`internal/infrastructure/storage/sftp_nil_client_test.go`** — SFTP nil-client guards: List/Read/Stat/Write/Delete/CreateDirectory/ReadFrom/AppendWrite/Disconnect.
+- **`internal/interfaces/cli/validate_format_test.go`** — all `validateConfig` source/dest backend error paths, compression validation, `formatSize` boundary cases (B/KB/MB/GB).
+- **`internal/usecase/transfer_usecase_branches_test.go`** — `progressReader.Close` (with and without inner Closer), resume+compression warning path, checksum skipped for resumed transfers, checksum skipped for compressed transfers, ReadFrom error exhausting retries.
+- **Entity edge cases** (`internal/domain/entity/pattern_test.go`) — `Match`/`MatchFull` with invalid bracket patterns, multiple `**`, prefix mismatch, prefix-only recursive match. Raises entity coverage to 100%.
+- **CLI flag coverage** (`internal/interfaces/cli/flags_test.go`) — local storage source/dest, SFTP private key source/dest, dest FTPS, source S3 access/secret key. Raises `applyCliFlags` coverage from 84% → 97%.
+- **Env var + backend tests** (`internal/infrastructure/config/envloader_test.go`) — NIXCOPY_* env var loading for all storage types and transfer flags; CLI-over-env precedence.
+
 ### Added — Compression
 
 - **`--compress gzip|zstd` CLI flag** and **`NIXCOPY_COMPRESSION` env var** — compress the data stream on-the-fly before writing to the destination. No temporary files; uses `io.Pipe` so memory stays bounded. Destination receives compressed bytes — name the dest path accordingly (`.gz`, `.zst`).

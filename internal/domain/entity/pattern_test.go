@@ -123,6 +123,13 @@ func TestFilePattern_Match(t *testing.T) {
 			path:    "/data/fileA.txt",
 			want:    false,
 		},
+		{
+			// filepath.Match returns an error for unclosed bracket — must return false
+			name:    "invalid pattern returns false",
+			pattern: "file[invalid.txt",
+			path:    "/data/file.txt",
+			want:    false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -166,6 +173,34 @@ func TestFilePattern_MatchFull(t *testing.T) {
 			name:    "recursive pattern no match",
 			pattern: "**/*.log",
 			path:    "/var/log/app/error.txt",
+			want:    false,
+		},
+		{
+			// More than one ** splits into >2 parts — must return false
+			name:    "multiple double-star rejected",
+			pattern: "a/**/b/**",
+			path:    "a/x/b/y",
+			want:    false,
+		},
+		{
+			// Prefix present but path does not start with it
+			name:    "recursive prefix mismatch",
+			pattern: "data/2024/**/*.csv",
+			path:    "/other/path/file.csv",
+			want:    false,
+		},
+		{
+			// Prefix present and path matches it, no suffix constraint
+			name:    "recursive prefix match no suffix",
+			pattern: "data/**",
+			path:    "data/some/deep/file.txt",
+			want:    true,
+		},
+		{
+			// Non-recursive wildcard with invalid bracket — filepath.Match error returns false
+			name:    "non-recursive invalid pattern returns false",
+			pattern: "/data/file[bad.txt",
+			path:    "/data/file.txt",
 			want:    false,
 		},
 	}

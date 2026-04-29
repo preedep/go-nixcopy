@@ -96,6 +96,14 @@ release-darwin: ## Build release for macOS ARM64
 release-windows: ## Build release for Windows AMD64
 	./build-release.sh windows amd64
 
+release-upx: ## Build release + UPX compression, current platform (requires upx)
+	@echo "Building release with UPX compression..."
+	UPX=1 ./build-release.sh current
+
+release-all-upx: ## Build release + UPX compression, all platforms (requires upx)
+	@echo "Building release with UPX compression for all platforms..."
+	UPX=1 ./build-release.sh all
+
 docker-build: ## Build Docker image for current platform with OCI labels
 	@echo "Building Docker image $(IMAGE_NAME):$(VERSION)..."
 	docker build \
