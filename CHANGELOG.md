@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Compression
+
+- **`--compress gzip|zstd` CLI flag** and **`NIXCOPY_COMPRESSION` env var** — compress the data stream on-the-fly before writing to the destination. No temporary files; uses `io.Pipe` so memory stays bounded. Destination receives compressed bytes — name the dest path accordingly (`.gz`, `.zst`).
+- **`Compression string` field** added to `entity.TransferConfig` and `config.TransferConfig` (`compression` YAML/JSON key). Valid values: `""` (default, no compression), `"gzip"`, `"zstd"`.
+- **`newCompressWriter`** (`internal/usecase/compress.go`) — wraps an `io.Writer` with gzip (stdlib `compress/gzip`) or zstd (`github.com/klauspost/compress/zstd`). Empty algo returns a no-op passthrough. Invalid algo returns an error at transfer time.
+- **Auto-disable incompatible features**: resume is disabled with a warning when compression is active (compressed chunks cannot be appended); checksum verification is disabled with a warning (destination bytes differ from source hash).
+- **Progress correctness**: the progress reader wraps the uncompressed source stream, so the percentage displayed is based on raw source bytes read — not the smaller compressed wire size.
+- **Unit tests** (`internal/usecase/compress_test.go`) — 6 tests: invalid algo error, passthrough identity, gzip round-trip, zstd round-trip, gzip compression ratio on compressible input, zstd compression ratio on compressible input.
+- **`TestLoadFromEnv_Compression`** added to `internal/infrastructure/config/envloader_test.go`.
+- **Dependency**: `github.com/klauspost/compress` promoted from indirect to direct (zstd encoder/decoder).
+
 ### Added — Bandwidth Limiting
 
 - **`--bandwidth-limit` CLI flag** (`internal/interfaces/cli/transfer.go`) — accepts human-readable suffixes (`10MB`, `1GB`, `512KB`, `10MiB`, etc.) or raw byte integers. Parsed via `usecase.ParseBandwidth`. Empty / `0` = unlimited (default).

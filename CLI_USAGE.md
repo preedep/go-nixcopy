@@ -152,6 +152,7 @@ nixcopy transfer -c config.yaml \
 | `--resume` | Resume interrupted transfer from partial destination file (local & SFTP) | false | `--resume` |
 | `--skip-existing` | Skip file if destination already has same size (idempotent retries) | false | `--skip-existing` |
 | `--bandwidth-limit` | Max bandwidth per file — accepts suffixes: `KB`, `MB`, `GB`, `KiB`, `MiB`, `GiB`, or raw bytes; `0`/empty = unlimited | unlimited | `--bandwidth-limit 10MB` |
+| `--compress` | Compress data stream before writing: `gzip` or `zstd`; empty = no compression. Disables resume and checksum verify. | _(none)_ | `--compress gzip` |
 
 ---
 
@@ -354,6 +355,7 @@ Same set of variables with `NIXCOPY_DEST_` prefix:
 | `NIXCOPY_ENABLE_RESUME` | `false` | Resume partial transfers (local & SFTP) |
 | `NIXCOPY_SKIP_EXISTING` | `false` | Skip file if destination size matches source |
 | `NIXCOPY_BANDWIDTH_LIMIT` | `0` | Max bytes/sec per file (raw integer; `0` = unlimited) |
+| `NIXCOPY_COMPRESSION` | _(empty)_ | Compress stream before writing: `gzip`, `zstd`, or empty |
 
 ### Observability / Context
 

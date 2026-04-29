@@ -216,6 +216,9 @@ func applyCliFlags(cfg *config.Config) {
 	if skipExisting {
 		cfg.Transfer.SkipExisting = true
 	}
+	if compress != "" {
+		cfg.Transfer.Compression = compress
+	}
 
 	// Set defaults if not set
 	if cfg.Transfer.BufferSize == 0 {
@@ -330,6 +333,13 @@ func validateConfig(cfg *config.Config) error {
 		if cfg.Destination.BlobStorage.ContainerName == "" {
 			return fmt.Errorf("destination Blob Storage container name is required")
 		}
+	}
+
+	switch cfg.Transfer.Compression {
+	case "", "gzip", "zstd":
+		// valid
+	default:
+		return fmt.Errorf("invalid compression %q: use gzip or zstd", cfg.Transfer.Compression)
 	}
 
 	return nil

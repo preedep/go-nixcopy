@@ -136,6 +136,17 @@ func TestLoadFromEnv_SkipExisting(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnv_Compression(t *testing.T) {
+	t.Setenv("NIXCOPY_COMPRESSION", "gzip")
+
+	cfg := DefaultConfig()
+	LoadFromEnv(cfg)
+
+	if cfg.Transfer.Compression != "gzip" {
+		t.Errorf("Transfer.Compression = %q, want gzip", cfg.Transfer.Compression)
+	}
+}
+
 func TestLoadFromEnv_BandwidthLimit(t *testing.T) {
 	t.Setenv("NIXCOPY_BANDWIDTH_LIMIT", "10485760") // 10 MB/s in raw bytes
 

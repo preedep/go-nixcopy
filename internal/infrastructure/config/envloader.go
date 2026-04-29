@@ -180,6 +180,7 @@ func applyTransferEnv(t *TransferConfig) {
 	setEnvBool(&t.EnableResume, "NIXCOPY_ENABLE_RESUME")
 	setEnvBool(&t.SkipExisting, "NIXCOPY_SKIP_EXISTING")
 	setEnvInt64(&t.BandwidthLimit, "NIXCOPY_BANDWIDTH_LIMIT")
+	setEnvString(&t.Compression, "NIXCOPY_COMPRESSION")
 }
 
 func setEnvString(dst *string, key string) {

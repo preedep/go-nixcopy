@@ -32,6 +32,7 @@
   - Retry mechanism อัตโนมัติเมื่อเกิดข้อผิดพลาด
   - Progress tracking แบบ real-time สำหรับแต่ละไฟล์
   - Bandwidth limiting ต่อไฟล์ (`--bandwidth-limit 10MB`)
+  - On-the-fly compression (`--compress gzip` / `--compress zstd`)
 
 - **สถาปัตยกรรม**
   - ออกแบบตาม Clean Architecture principles
@@ -108,6 +109,7 @@ transfer:
   enable_resume: false       # resume interrupted transfers (local & SFTP)
   skip_existing: false       # skip file if destination already has same size
   bandwidth_limit: 0         # max bytes/sec per file; 0 = unlimited
+  compression: ""            # "gzip", "zstd", or "" (no compression)
 ```
 
 > **Note:** The `logging:` block is deprecated and no longer read. All logs are now emitted in standard-app-log v1.0 JSON format to stdout automatically. See [Application Logging](#-application-logging) below.
@@ -727,6 +729,35 @@ go-nixcopy/
 - **Concurrency**: 5 concurrent block uploads ต่อ blob
 - รองรับ blob ได้ถึง ~190 TiB
 
+### On-the-fly Compression
+
+ลดขนาดข้อมูลที่ถ่ายโอนผ่าน network โดยบีบอัดแบบ streaming (ไม่ต้องมี temporary file):
+
+```bash
+# gzip — standard, widely compatible
+nixcopy transfer --compress gzip -s /data/logs/*.csv -d archive/
+
+# zstd — faster at equivalent ratio; good for large files
+nixcopy transfer --compress zstd -s /data/dump.sql -d backup/dump.sql.zst
+
+# ผ่าน env var
+export NIXCOPY_COMPRESSION=gzip
+```
+
+ผ่าน config file:
+
+```yaml
+transfer:
+  compression: gzip   # "gzip", "zstd", or "" (default)
+```
+
+**ข้อควรทราบ:**
+- ขนาดปลายทางที่ได้จะเป็น compressed bytes — ตั้งชื่อ dest path ให้มี extension ที่เหมาะสม (`.gz`, `.zst`)
+- `--verify-checksum` จะถูก disable อัตโนมัติเมื่อใช้ compression (dest bytes ไม่ตรงกับ source hash)
+- `--resume` จะถูก disable อัตโนมัติเมื่อใช้ compression (append compressed chunks ไม่ได้)
+- Progress แสดงเป็น % ของ source bytes ที่อ่านแล้ว (uncompressed)
+- Limit ต่อ concurrent file — ไม่ขึ้นกัน
+
 ### Bandwidth Limiting
 
 จำกัด throughput ต่อไฟล์เพื่อป้องกัน network saturation:
@@ -965,6 +996,7 @@ The image supports **no-config-file** mode. Inject all storage config as `NIXCOP
 | | `NIXCOPY_ENABLE_RESUME` | `true`/`false` (default: false) |
 | | `NIXCOPY_SKIP_EXISTING` | `true`/`false` — skip if dest has same size (default: false) |
 | | `NIXCOPY_BANDWIDTH_LIMIT` | max bytes/sec per file (raw integer; `0` = unlimited) |
+| | `NIXCOPY_COMPRESSION` | `gzip`, `zstd`, or empty (default: no compression) |
 
 📖 Full reference with every env var: [CLI_USAGE.md — NIXCOPY_* Environment Variables](CLI_USAGE.md#nixcopy-environment-variables)
 
@@ -1129,6 +1161,7 @@ transfer:
 - [x] **Structured JSON exit summary** — `event=transfer_summary` JSON line to stdout; progress to stderr; `sync.WaitGroup` prevents interleave in K8s log streams
 - [x] **CI workflow** — GitHub Actions with correct Go version (`go-version-file: go.mod`), `go vet`, `go mod tidy` check, `-race -covermode=atomic`, MinIO + SFTP integration tests, `.golangci.yml` with explicit linter set
 - [x] **Bandwidth limiting** — `--bandwidth-limit` / `NIXCOPY_BANDWIDTH_LIMIT`; accepts `10MB`, `1GB`, `512KB` or raw bytes; cumulative-bytes throttle per file with context-aware cancel; no external dependencies
+- [x] **On-the-fly compression** — `--compress gzip|zstd` / `NIXCOPY_COMPRESSION`; streaming `io.Pipe` goroutine (no temp files); auto-disables resume and checksum verify when active; progress tracks uncompressed source bytes
 
 ### 🚧 In Progress / Planned
 - [ ] Web UI สำหรับการจัดการ
