@@ -175,7 +175,7 @@ Closes #123
 
 หากมีคำถาม:
 - เปิด [Issue](https://github.com/preedep/go-nixcopy/issues)
-- ดู [README.md](README.md)
+- ดู [README.md](../../README.md)
 - ติดต่อ maintainers
 
 ## License

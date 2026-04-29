@@ -495,10 +495,10 @@ nixcopy transfer -c config.yaml \
 
 ## 📚 เอกสารเพิ่มเติม
 
-- [README.md](README.md) - คู่มือหลัก
-- [CLI_USAGE.md](CLI_USAGE.md) - คู่มือ CLI parameters
-- [AUTHENTICATION.md](AUTHENTICATION.md) - คู่มือ authentication
-- [QUICKSTART.md](QUICKSTART.md) - คู่มือเริ่มต้นใช้งาน
+- [README.md](../../README.md) - คู่มือหลัก
+- [CLI_USAGE.md](cli-usage.md) - คู่มือ CLI parameters
+- [AUTHENTICATION.md](authentication.md) - คู่มือ authentication
+- [QUICKSTART.md](quickstart.md) - คู่มือเริ่มต้นใช้งาน
 
 ---
 

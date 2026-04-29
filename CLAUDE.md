@@ -44,7 +44,7 @@ make clean              # build artifacts (bin/)
 make clean-dist         # release artifacts (dist/)
 ```
 
-See [BUILD.md](BUILD.md) for release build flags, binary size benchmarks, and CI/CD integration examples.
+See [BUILD.md](docs/development/build.md) for release build flags, binary size benchmarks, and CI/CD integration examples.
 
 ---
 
@@ -87,7 +87,7 @@ cmd/nixcopy/main.go
 
 ## Adding a New Storage Backend
 
-Follow these three steps (see [CONTRIBUTING.md](CONTRIBUTING.md) for a full code template):
+Follow these three steps (see [CONTRIBUTING.md](docs/development/contributing.md) for a full code template):
 
 1. **Implement** `repository.Storage` in `internal/infrastructure/storage/<name>.go`
 2. **Add config struct** in `internal/infrastructure/config/config.go`
@@ -129,7 +129,7 @@ destination:
 
 Protect config files: `chmod 600 config.yaml`.
 
-For full CLI flag reference and precedence rules, see [CLI_USAGE.md](CLI_USAGE.md).
+For full CLI flag reference and precedence rules, see [CLI_USAGE.md](docs/guides/cli-usage.md).
 
 ---
 
@@ -145,7 +145,7 @@ Auth methods that require cloud metadata (IAM roles, Managed Identity) only work
 | Azure AKS | `access_key` | `managed_identity` (Workload Identity) ✅ |
 | On-premise / local | `access_key` | `shared_key` / `sas_token` |
 
-For detailed setup steps, cross-account and Kubernetes scenarios, see [AUTHENTICATION.md](AUTHENTICATION.md) and [ENVIRONMENT_GUIDE.md](ENVIRONMENT_GUIDE.md).
+For detailed setup steps, cross-account and Kubernetes scenarios, see [AUTHENTICATION.md](docs/guides/authentication.md) and [ENVIRONMENT_GUIDE.md](docs/guides/environment-guide.md).
 
 ---
 
@@ -180,13 +180,13 @@ Use `nixcopy list` to validate a pattern before a real transfer:
 nixcopy list -c config.yaml -p "reports/*.pdf" --source
 ```
 
-See [PARALLEL_TRANSFER.md](PARALLEL_TRANSFER.md) for batch, multi-pattern, and scripting examples.
+See [PARALLEL_TRANSFER.md](docs/guides/parallel-transfer.md) for batch, multi-pattern, and scripting examples.
 
 ---
 
 ## Testing
 
-Unit tests use `MockStorage` (no real credentials needed). See [TESTING.md](TESTING.md) for full examples.
+Unit tests use `MockStorage` (no real credentials needed). See [TESTING.md](docs/development/testing.md) for full examples.
 
 CLI flag tests (`internal/interfaces/cli/flags_test.go`) operate on package-level flag vars. Call `resetTransferFlags()` at the start of every CLI test to prevent state bleed between tests.
 

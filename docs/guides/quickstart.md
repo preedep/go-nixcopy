@@ -136,7 +136,7 @@ docker run --rm \
   transfer -s /data/file.csv -d processed/file.csv
 ```
 
-ดู [README.md — KPO Golden Image](README.md#-docker--kubernetes-golden-image) สำหรับตัวอย่าง KubernetesPodOperator แบบเต็ม
+ดู [README.md — KPO Golden Image](../../README.md#-docker--kubernetes-golden-image) สำหรับตัวอย่าง KubernetesPodOperator แบบเต็ม
 
 ## Performance Tips
 
@@ -184,11 +184,11 @@ transfer:
 
 ## Next Steps
 
-1. อ่าน [README.md](README.md) สำหรับข้อมูลเพิ่มเติม
+1. อ่าน [README.md](../../README.md) สำหรับข้อมูลเพิ่มเติม
 2. ดู [examples/](examples/) สำหรับ config ตัวอย่าง
-3. อ่าน [CONTRIBUTING.md](CONTRIBUTING.md) ถ้าต้องการมีส่วนร่วม
+3. อ่าน [CONTRIBUTING.md](../development/contributing.md) ถ้าต้องการมีส่วนร่วม
 
 ## Support
 
 - GitHub Issues: https://github.com/preedep/go-nixcopy/issues
-- Documentation: [README.md](README.md)
+- Documentation: [README.md](../../README.md)
