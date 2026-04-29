@@ -878,7 +878,7 @@ from kubernetes.client import models as k8s
 
 KubernetesPodOperator(
     task_id="transfer_sftp_to_s3",
-    image="your-registry/nixcopy:1.2.0",   # pin to a specific OCI-labeled tag
+    image="nickmsft/gonixcopy:1.2.0",   # pin to a specific OCI-labeled tag
     cmds=["./nixcopy"],
     arguments=["transfer", "-s", "/data/exports/*.csv", "-d", "processed/"],
     env_vars=[
@@ -921,7 +921,7 @@ make docker-build
 
 # Multi-arch build and push to registry (linux/amd64 + linux/arm64)
 # Requires: docker buildx, a builder with multi-arch support, and a registry
-IMAGE_NAME=your-registry/nixcopy make docker-buildx
+IMAGE_NAME=nickmsft/gonixcopy make docker-buildx
 
 # Run using NIXCOPY_* env vars (no config file needed — recommended for KPO)
 make docker-run
