@@ -202,6 +202,30 @@ func (b *BlobStorage) Stat(ctx context.Context, path string) (*entity.FileInfo, 
 	}, nil
 }
 
+const (
+	blobMinBlockSize      = int64(1 * 1024 * 1024)  // 1 MiB — Azure SDK minimum
+	blobDefaultBlockSize  = int64(16 * 1024 * 1024) // 16 MiB — good default for most blob sizes
+	blobMaxBlocks         = int64(50000)             // Azure limit: max 50,000 blocks per blob
+	blobUploadConcurrency = 5                        // concurrent block uploads within one blob
+)
+
+// blobBlockSizeFor returns the optimal block size for a blob of the given size.
+// Rules: >= blobMinBlockSize, and size/blockSize <= blobMaxBlocks.
+// When size <= 0 (unknown), the default is returned.
+func blobBlockSizeFor(size int64) int64 {
+	blockSize := blobDefaultBlockSize
+	if size > 0 {
+		required := (size + blobMaxBlocks - 1) / blobMaxBlocks
+		if required > blockSize {
+			blockSize = required
+		}
+	}
+	if blockSize < blobMinBlockSize {
+		blockSize = blobMinBlockSize
+	}
+	return blockSize
+}
+
 func (b *BlobStorage) Write(ctx context.Context, path string, reader io.Reader, size int64) error {
 	if b.client == nil {
 		return fmt.Errorf("blob client not connected")
@@ -210,7 +234,10 @@ func (b *BlobStorage) Write(ctx context.Context, path string, reader io.Reader, 
 	blobName := strings.TrimPrefix(path, "/")
 	blobClient := b.containerClient.NewBlockBlobClient(blobName)
 
-	_, err := blobClient.UploadStream(ctx, reader, &azblob.UploadStreamOptions{})
+	_, err := blobClient.UploadStream(ctx, reader, &azblob.UploadStreamOptions{
+		BlockSize:   blobBlockSizeFor(size),
+		Concurrency: blobUploadConcurrency,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to upload blob: %w", err)
 	}
