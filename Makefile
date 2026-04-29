@@ -104,6 +104,12 @@ release-all-upx: ## Build release + UPX compression, all platforms (requires upx
 	@echo "Building release with UPX compression for all platforms..."
 	UPX=1 ./build-release.sh all
 
+goreleaser-check: ## Validate .goreleaser.yaml config (requires goreleaser)
+	goreleaser check
+
+goreleaser-snapshot: ## Build snapshot locally via GoReleaser — no publish, no tag required (requires goreleaser)
+	goreleaser release --snapshot --clean
+
 docker-build: ## Build Docker image for current platform with OCI labels
 	@echo "Building Docker image $(IMAGE_NAME):$(VERSION)..."
 	docker build \
