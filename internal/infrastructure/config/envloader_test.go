@@ -373,7 +373,7 @@ func TestApplyBackendEnv_IsIdempotent(t *testing.T) {
 	t.Setenv("NIXCOPY_SOURCE_HOST", "sftp.example.com")
 
 	cfg := DefaultConfig()
-	LoadFromEnv(cfg) // first call (via LoadFromEnv)
+	LoadFromEnv(cfg)     // first call (via LoadFromEnv)
 	ApplyBackendEnv(cfg) // second call
 
 	if cfg.Source.SFTP == nil {
