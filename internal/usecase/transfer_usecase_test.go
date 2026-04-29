@@ -207,9 +207,9 @@ func TestTransferUseCase_Transfer_ChecksumVerification_Success(t *testing.T) {
 
 	testContent := []byte("checksum test content")
 	source.AddFile("/source/file.txt", testContent, &entity.FileInfo{
-		Path:        "/source/file.txt",
-		Name:        "file.txt",
-		Size:        int64(len(testContent)),
+		Path:         "/source/file.txt",
+		Name:         "file.txt",
+		Size:         int64(len(testContent)),
 		ModifiedTime: time.Now(),
 	})
 
@@ -246,9 +246,9 @@ func TestTransferUseCase_Transfer_ChecksumVerification_Mismatch(t *testing.T) {
 
 	testContent := []byte("checksum test content")
 	source.AddFile("/source/file.txt", testContent, &entity.FileInfo{
-		Path:        "/source/file.txt",
-		Name:        "file.txt",
-		Size:        int64(len(testContent)),
+		Path:         "/source/file.txt",
+		Name:         "file.txt",
+		Size:         int64(len(testContent)),
 		ModifiedTime: time.Now(),
 	})
 
@@ -283,17 +283,17 @@ func TestTransferUseCase_Transfer_Resume_WithPartialDest(t *testing.T) {
 	partialContent := fullContent[:6] // dest already has "Hello,"
 
 	source.AddFile("/source/file.txt", fullContent, &entity.FileInfo{
-		Path:        "/source/file.txt",
-		Name:        "file.txt",
-		Size:        int64(len(fullContent)),
+		Path:         "/source/file.txt",
+		Name:         "file.txt",
+		Size:         int64(len(fullContent)),
 		ModifiedTime: time.Now(),
 	})
 
 	// Pre-seed destination with partial content
 	dest.AddFile("/dest/file.txt", partialContent, &entity.FileInfo{
-		Path:        "/dest/file.txt",
-		Name:        "file.txt",
-		Size:        int64(len(partialContent)),
+		Path:         "/dest/file.txt",
+		Name:         "file.txt",
+		Size:         int64(len(partialContent)),
 		ModifiedTime: time.Now(),
 	})
 
@@ -334,9 +334,9 @@ func TestTransferUseCase_Transfer_Resume_NoPartialDest(t *testing.T) {
 
 	fullContent := []byte("Hello, World!")
 	source.AddFile("/source/file.txt", fullContent, &entity.FileInfo{
-		Path:        "/source/file.txt",
-		Name:        "file.txt",
-		Size:        int64(len(fullContent)),
+		Path:         "/source/file.txt",
+		Name:         "file.txt",
+		Size:         int64(len(fullContent)),
 		ModifiedTime: time.Now(),
 	})
 

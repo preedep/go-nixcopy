@@ -245,16 +245,16 @@ func TestPatternMatcher_MatchFiles_NoMatches(t *testing.T) {
 	logger := applog.NewNopLogger()
 
 	storage.AddFile("/data/readme.txt", []byte("content"), &entity.FileInfo{
-		Path:        "/data/readme.txt",
-		Name:        "readme.txt",
+		Path:         "/data/readme.txt",
+		Name:         "readme.txt",
 		ModifiedTime: time.Now(),
-		IsDirectory: false,
+		IsDirectory:  false,
 	})
 	storage.AddFile("/data/notes.md", []byte("notes"), &entity.FileInfo{
-		Path:        "/data/notes.md",
-		Name:        "notes.md",
+		Path:         "/data/notes.md",
+		Name:         "notes.md",
 		ModifiedTime: time.Now(),
-		IsDirectory: false,
+		IsDirectory:  false,
 	})
 
 	matcher := NewPatternMatcher(storage, logger)
