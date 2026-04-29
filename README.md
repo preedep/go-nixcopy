@@ -221,14 +221,14 @@ A JSON summary goes to **stdout** on completion (machine-readable):
 
 | Topic | File |
 |---|---|
-| Quick start & troubleshooting & performance tips | [QUICKSTART.md](QUICKSTART.md) |
-| All CLI flags & `NIXCOPY_*` env vars | [CLI_USAGE.md](CLI_USAGE.md) |
-| Authentication setup (AWS, Azure) | [AUTHENTICATION.md](AUTHENTICATION.md) |
-| Parallel transfer & wildcard patterns | [PARALLEL_TRANSFER.md](PARALLEL_TRANSFER.md) |
-| Testing guide | [TESTING.md](TESTING.md) |
-| Release build flags & binary sizes | [BUILD.md](BUILD.md) |
-| Deployment environments (EKS, AKS, on-prem) | [ENVIRONMENT_GUIDE.md](ENVIRONMENT_GUIDE.md) |
-| Contributing a new storage backend | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Quick start & troubleshooting & performance tips | [QUICKSTART.md](docs/guides/quickstart.md) |
+| All CLI flags & `NIXCOPY_*` env vars | [CLI_USAGE.md](docs/guides/cli-usage.md) |
+| Authentication setup (AWS, Azure) | [AUTHENTICATION.md](docs/guides/authentication.md) |
+| Parallel transfer & wildcard patterns | [PARALLEL_TRANSFER.md](docs/guides/parallel-transfer.md) |
+| Testing guide | [TESTING.md](docs/development/testing.md) |
+| Release build flags & binary sizes | [BUILD.md](docs/development/build.md) |
+| Deployment environments (EKS, AKS, on-prem) | [ENVIRONMENT_GUIDE.md](docs/guides/environment-guide.md) |
+| Contributing a new storage backend | [CONTRIBUTING.md](docs/development/contributing.md) |
 
 ---
 
@@ -390,7 +390,7 @@ The JSON summary goes to **stdout** — parse it with Loki / CloudWatch Insights
 ## Contributing
 
 Bug reports and pull requests are welcome on [GitHub Issues](https://github.com/preedep/go-nixcopy/issues).
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow and code template.
+See [CONTRIBUTING.md](docs/development/contributing.md) for the development workflow and code template.
 
 ## License
 

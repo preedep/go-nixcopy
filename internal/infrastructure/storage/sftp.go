@@ -27,30 +27,39 @@ func NewSFTPStorage(cfg *config.SFTPConfig) repository.Storage {
 	}
 }
 
-func (s *SFTPStorage) Connect(ctx context.Context) error {
-	authMethods := []ssh.AuthMethod{}
+func buildAuthMethods(cfg *config.SFTPConfig) ([]ssh.AuthMethod, error) {
+	var methods []ssh.AuthMethod
 
-	if s.config.Password != "" {
-		authMethods = append(authMethods, ssh.Password(s.config.Password))
+	if cfg.Password != "" {
+		methods = append(methods, ssh.Password(cfg.Password))
 	}
 
-	if s.config.PrivateKeyPath != "" {
-		key, err := os.ReadFile(s.config.PrivateKeyPath)
+	if cfg.PrivateKeyPath != "" {
+		key, err := os.ReadFile(cfg.PrivateKeyPath)
 		if err != nil {
-			return fmt.Errorf("failed to read private key: %w", err)
+			return nil, fmt.Errorf("failed to read private key: %w", err)
 		}
 
 		var signer ssh.Signer
-		if s.config.PrivateKeyPass != "" {
-			signer, err = ssh.ParsePrivateKeyWithPassphrase(key, []byte(s.config.PrivateKeyPass))
+		if cfg.PrivateKeyPass != "" {
+			signer, err = ssh.ParsePrivateKeyWithPassphrase(key, []byte(cfg.PrivateKeyPass))
 		} else {
 			signer, err = ssh.ParsePrivateKey(key)
 		}
 		if err != nil {
-			return fmt.Errorf("failed to parse private key: %w", err)
+			return nil, fmt.Errorf("failed to parse private key: %w", err)
 		}
 
-		authMethods = append(authMethods, ssh.PublicKeys(signer))
+		methods = append(methods, ssh.PublicKeys(signer))
+	}
+
+	return methods, nil
+}
+
+func (s *SFTPStorage) Connect(ctx context.Context) error {
+	authMethods, err := buildAuthMethods(s.config)
+	if err != nil {
+		return err
 	}
 
 	sshConfig := &ssh.ClientConfig{

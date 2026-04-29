@@ -568,9 +568,9 @@ nixcopy transfer -c config.yaml --dry-run -s /file -d /file
 
 ## 📚 เอกสารเพิ่มเติม
 
-- [README.md](README.md) - คู่มือหลัก
-- [AUTHENTICATION.md](AUTHENTICATION.md) - คู่มือ authentication
-- [QUICKSTART.md](QUICKSTART.md) - คู่มือเริ่มต้นใช้งาน
+- [README.md](../../README.md) - คู่มือหลัก
+- [AUTHENTICATION.md](authentication.md) - คู่มือ authentication
+- [QUICKSTART.md](quickstart.md) - คู่มือเริ่มต้นใช้งาน
 - [examples/](examples/) - ตัวอย่าง config files
 
 ---
