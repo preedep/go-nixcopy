@@ -2,9 +2,11 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -16,6 +18,26 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
+
+// transferSummary is the structured JSON line written to stdout on completion.
+// Downstream tools (Airflow log parsers, Loki, CloudWatch Insights) can filter
+// on event="transfer_summary" to extract transfer metrics without parsing human text.
+type transferSummary struct {
+	Event            string       `json:"event"`
+	TotalFiles       int          `json:"total_files"`
+	Successful       int          `json:"successful"`
+	Skipped          int          `json:"skipped"`
+	Failed           int          `json:"failed"`
+	BytesTransferred int64        `json:"bytes_transferred"`
+	DurationMs       int64        `json:"duration_ms"`
+	AverageSpeedMBps float64      `json:"average_speed_mbps,omitempty"`
+	FailedFiles      []failedFile `json:"failed_files,omitempty"`
+}
+
+type failedFile struct {
+	Path  string `json:"path"`
+	Error string `json:"error"`
+}
 
 var (
 	sourcePath  string
@@ -260,30 +282,38 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 	)
 
 	progressChan := make(chan entity.TransferProgress, 100)
+	var progressWg sync.WaitGroup
+	progressWg.Add(1)
 	go func() {
+		defer progressWg.Done()
 		for progress := range progressChan {
-			if progress.Status == entity.TransferStatusInProgress {
+			switch progress.Status {
+			case entity.TransferStatusInProgress:
 				percentage := float64(progress.TransferredBytes) / float64(progress.TotalBytes) * 100
 				speedMB := progress.Speed / (1024 * 1024)
-				fmt.Printf("\r[%s] %.2f%% | %.2f MB/s | ETA: %s",
+				fmt.Fprintf(os.Stderr, "\r[%s] %.2f%% | %.2f MB/s | ETA: %s",
 					progress.FileName,
 					percentage,
 					speedMB,
 					progress.EstimatedTime.Round(time.Second),
 				)
-			} else if progress.Status == entity.TransferStatusCompleted {
+			case entity.TransferStatusCompleted:
 				speedMB := progress.Speed / (1024 * 1024)
-				fmt.Printf("\r[%s] ✓ Completed | %.2f MB/s\n",
+				fmt.Fprintf(os.Stderr, "\r[%s] ✓ Completed | %.2f MB/s\n",
 					progress.FileName,
 					speedMB,
 				)
-			} else if progress.Status == entity.TransferStatusFailed {
-				fmt.Printf("\r[%s] ✗ Failed: %v\n",
+			case entity.TransferStatusSkipped:
+				fmt.Fprintf(os.Stderr, "\r[%s] ↷ Skipped\n", progress.FileName)
+			case entity.TransferStatusFailed:
+				fmt.Fprintf(os.Stderr, "\r[%s] ✗ Failed: %v\n",
 					progress.FileName,
 					progress.Error,
 				)
 			}
 		}
+		// Terminate any partial \r line so the shell prompt appears cleanly.
+		fmt.Fprintln(os.Stderr)
 	}()
 
 	startTime := time.Now()
@@ -306,11 +336,8 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 	}
 
 	close(progressChan)
+	progressWg.Wait() // ensure all progress lines are flushed to stderr before JSON hits stdout
 	totalDuration := time.Since(startTime)
-
-	// Print summary
-	fmt.Printf("\n\n=== Transfer Summary ===\n")
-	fmt.Printf("Total Files: %d\n", len(results))
 
 	var successCount, failCount, skipCount int
 	var totalBytes int64
@@ -327,23 +354,40 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Printf("Successful: %d\n", successCount)
-	fmt.Printf("Skipped:    %d\n", skipCount)
-	fmt.Printf("Failed:     %d\n", failCount)
-	fmt.Printf("Total Bytes: %d (%.2f MB)\n", totalBytes, float64(totalBytes)/(1024*1024))
-	fmt.Printf("Total Duration: %s\n", totalDuration.Round(time.Millisecond))
+	summary := transferSummary{
+		Event:            "transfer_summary",
+		TotalFiles:       len(results),
+		Successful:       successCount,
+		Skipped:          skipCount,
+		Failed:           failCount,
+		BytesTransferred: totalBytes,
+		DurationMs:       totalDuration.Milliseconds(),
+	}
 
 	if totalDuration.Seconds() > 0 && totalBytes > 0 {
-		fmt.Printf("Average Speed: %.2f MB/s\n", float64(totalBytes)/(1024*1024)/totalDuration.Seconds())
+		summary.AverageSpeedMBps = float64(totalBytes) / (1024 * 1024) / totalDuration.Seconds()
+	}
+
+	for _, result := range results {
+		if result.Status == entity.TransferStatusFailed {
+			errStr := ""
+			if result.Error != nil {
+				errStr = result.Error.Error()
+			}
+			summary.FailedFiles = append(summary.FailedFiles, failedFile{
+				Path:  result.SourcePath,
+				Error: errStr,
+			})
+		}
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(summary); err != nil {
+		return fmt.Errorf("failed to write summary: %w", err)
 	}
 
 	if failCount > 0 {
-		fmt.Printf("\nFailed Files:\n")
-		for _, result := range results {
-			if result.Status == entity.TransferStatusFailed {
-				fmt.Printf("  - %s: %v\n", result.SourcePath, result.Error)
-			}
-		}
 		return fmt.Errorf("%d of %d file(s) failed to transfer", failCount, len(results))
 	}
 
