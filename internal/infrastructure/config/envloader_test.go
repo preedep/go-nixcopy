@@ -320,6 +320,70 @@ func TestLoadFromEnv_DestFTPS(t *testing.T) {
 	}
 }
 
+func TestApplyBackendEnv_SourceSFTP_TypeSetExternally(t *testing.T) {
+	// Simulates --source-type=sftp with no NIXCOPY_SOURCE_TYPE set.
+	// Type is pre-resolved before ApplyBackendEnv, so backend vars must still land.
+	t.Setenv("NIXCOPY_SOURCE_HOST", "sftp.example.com")
+	t.Setenv("NIXCOPY_SOURCE_USERNAME", "envuser")
+
+	cfg := DefaultConfig()
+	cfg.Source.Type = StorageTypeSFTP // type from CLI flag, not NIXCOPY_SOURCE_TYPE
+
+	ApplyBackendEnv(cfg)
+
+	if cfg.Source.SFTP == nil {
+		t.Fatal("Source.SFTP is nil")
+	}
+	if cfg.Source.SFTP.Host != "sftp.example.com" {
+		t.Errorf("SFTP.Host = %q, want sftp.example.com", cfg.Source.SFTP.Host)
+	}
+	if cfg.Source.SFTP.Username != "envuser" {
+		t.Errorf("SFTP.Username = %q, want envuser", cfg.Source.SFTP.Username)
+	}
+}
+
+func TestApplyBackendEnv_DestS3_TypeSetExternally(t *testing.T) {
+	t.Setenv("NIXCOPY_DEST_REGION", "ap-southeast-1")
+	t.Setenv("NIXCOPY_DEST_BUCKET", "dest-bucket")
+	t.Setenv("NIXCOPY_DEST_ACCESS_KEY", "AKIADESTKEY")
+	t.Setenv("NIXCOPY_DEST_SECRET_KEY", "destsecret")
+
+	cfg := DefaultConfig()
+	cfg.Destination.Type = StorageTypeS3
+
+	ApplyBackendEnv(cfg)
+
+	if cfg.Destination.S3 == nil {
+		t.Fatal("Destination.S3 is nil")
+	}
+	if cfg.Destination.S3.Region != "ap-southeast-1" {
+		t.Errorf("S3.Region = %q, want ap-southeast-1", cfg.Destination.S3.Region)
+	}
+	if cfg.Destination.S3.Bucket != "dest-bucket" {
+		t.Errorf("S3.Bucket = %q, want dest-bucket", cfg.Destination.S3.Bucket)
+	}
+	if cfg.Destination.S3.AccessKeyID != "AKIADESTKEY" {
+		t.Errorf("S3.AccessKeyID = %q, want AKIADESTKEY", cfg.Destination.S3.AccessKeyID)
+	}
+}
+
+func TestApplyBackendEnv_IsIdempotent(t *testing.T) {
+	// Calling ApplyBackendEnv twice must produce the same result.
+	t.Setenv("NIXCOPY_SOURCE_TYPE", "sftp")
+	t.Setenv("NIXCOPY_SOURCE_HOST", "sftp.example.com")
+
+	cfg := DefaultConfig()
+	LoadFromEnv(cfg) // first call (via LoadFromEnv)
+	ApplyBackendEnv(cfg) // second call
+
+	if cfg.Source.SFTP == nil {
+		t.Fatal("Source.SFTP is nil after double apply")
+	}
+	if cfg.Source.SFTP.Host != "sftp.example.com" {
+		t.Errorf("SFTP.Host = %q, want sftp.example.com", cfg.Source.SFTP.Host)
+	}
+}
+
 func TestLoadFromEnv_EmptyVarsNoChange(t *testing.T) {
 	cfg := DefaultConfig()
 	before := cfg.Transfer.BufferSize

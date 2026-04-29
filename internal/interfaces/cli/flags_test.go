@@ -311,6 +311,10 @@ func TestCliFlag_WinsOver_EnvVar(t *testing.T) {
 
 	cfg := config.DefaultConfig()
 	config.LoadFromEnv(cfg)
+	if sourceType != "" {
+		cfg.Source.Type = config.StorageType(sourceType)
+	}
+	config.ApplyBackendEnv(cfg)
 	applyCliFlags(cfg)
 
 	if cfg.Source.SFTP == nil {
@@ -318,6 +322,91 @@ func TestCliFlag_WinsOver_EnvVar(t *testing.T) {
 	}
 	if cfg.Source.SFTP.Host != "cli-host" {
 		t.Errorf("Source.SFTP.Host = %q, want cli-host (CLI flag must win over env var)", cfg.Source.SFTP.Host)
+	}
+}
+
+// runTransferEnvFlow simulates the env+CLI resolution sequence from runTransfer,
+// without connecting to any real storage backend.
+func runTransferEnvFlow(cfg *config.Config) {
+	config.LoadFromEnv(cfg)
+	if sourceType != "" {
+		cfg.Source.Type = config.StorageType(sourceType)
+	}
+	if destType != "" {
+		cfg.Destination.Type = config.StorageType(destType)
+	}
+	config.ApplyBackendEnv(cfg)
+	applyCliFlags(cfg)
+}
+
+func TestEnvSourceField_AppliedWhenTypeFromCliFlag(t *testing.T) {
+	// Regression test for the bug where NIXCOPY_SOURCE_HOST was silently ignored
+	// when the type came from --source-type rather than NIXCOPY_SOURCE_TYPE.
+	t.Setenv("NIXCOPY_SOURCE_HOST", "env-host")
+	// NIXCOPY_SOURCE_TYPE intentionally NOT set — type comes from CLI flag only
+
+	resetTransferFlags()
+	sourceType = "sftp"
+	sourceUsername = "cliuser"
+
+	cfg := config.DefaultConfig()
+	runTransferEnvFlow(cfg)
+
+	if cfg.Source.SFTP == nil {
+		t.Fatal("Source.SFTP is nil")
+	}
+	if cfg.Source.SFTP.Host != "env-host" {
+		t.Errorf("SFTP.Host = %q, want env-host (NIXCOPY_SOURCE_HOST must apply when type from --source-type)", cfg.Source.SFTP.Host)
+	}
+	if cfg.Source.SFTP.Username != "cliuser" {
+		t.Errorf("SFTP.Username = %q, want cliuser", cfg.Source.SFTP.Username)
+	}
+}
+
+func TestEnvDestField_AppliedWhenTypeFromCliFlag(t *testing.T) {
+	t.Setenv("NIXCOPY_DEST_REGION", "us-west-2")
+	t.Setenv("NIXCOPY_DEST_BUCKET", "env-bucket")
+	// NIXCOPY_DEST_TYPE intentionally NOT set
+
+	resetTransferFlags()
+	destType = "s3"
+	destAccessKey = "CLIKEY"
+
+	cfg := config.DefaultConfig()
+	runTransferEnvFlow(cfg)
+
+	if cfg.Destination.S3 == nil {
+		t.Fatal("Destination.S3 is nil")
+	}
+	if cfg.Destination.S3.Region != "us-west-2" {
+		t.Errorf("S3.Region = %q, want us-west-2 (NIXCOPY_DEST_REGION must apply when type from --dest-type)", cfg.Destination.S3.Region)
+	}
+	if cfg.Destination.S3.Bucket != "env-bucket" {
+		t.Errorf("S3.Bucket = %q, want env-bucket", cfg.Destination.S3.Bucket)
+	}
+	if cfg.Destination.S3.AccessKeyID != "CLIKEY" {
+		t.Errorf("S3.AccessKeyID = %q, want CLIKEY (CLI field must win over unset env)", cfg.Destination.S3.AccessKeyID)
+	}
+}
+
+func TestCliField_WinsOver_EnvField_WhenTypeFromCliFlag(t *testing.T) {
+	// Both CLI flag and env var supply the same field; CLI must win.
+	t.Setenv("NIXCOPY_SOURCE_HOST", "env-host")
+	// NIXCOPY_SOURCE_TYPE NOT set
+
+	resetTransferFlags()
+	sourceType = "sftp"
+	sourceHost = "cli-host" // must beat env-host
+	sourceUsername = "user"
+
+	cfg := config.DefaultConfig()
+	runTransferEnvFlow(cfg)
+
+	if cfg.Source.SFTP == nil {
+		t.Fatal("Source.SFTP is nil")
+	}
+	if cfg.Source.SFTP.Host != "cli-host" {
+		t.Errorf("SFTP.Host = %q, want cli-host (CLI flag must win over env var)", cfg.Source.SFTP.Host)
 	}
 }
 

@@ -163,10 +163,22 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 		cfg = *config.DefaultConfig()
 	}
 
-	// Overlay environment variables (NIXCOPY_*) — env wins over config file, loses to CLI flags
+	// Overlay environment variables (NIXCOPY_*) — env wins over config file, loses to CLI flags.
+	// LoadFromEnv sets types from NIXCOPY_SOURCE/DEST_TYPE, then calls ApplyBackendEnv internally.
 	config.LoadFromEnv(&cfg)
 
-	// Override config with CLI flags
+	// If --source-type or --dest-type was given, it overrides NIXCOPY_SOURCE/DEST_TYPE.
+	// Re-apply backend env vars so backend-specific vars (e.g. NIXCOPY_SOURCE_HOST) are
+	// picked up for the CLI-supplied type even when NIXCOPY_SOURCE_TYPE was not set.
+	if sourceType != "" {
+		cfg.Source.Type = config.StorageType(sourceType)
+	}
+	if destType != "" {
+		cfg.Destination.Type = config.StorageType(destType)
+	}
+	config.ApplyBackendEnv(&cfg)
+
+	// Override config with CLI flags (individual field values win over env vars)
 	applyCliFlags(&cfg)
 
 	// Parse --bandwidth-limit flag (human-readable string) and override config.
