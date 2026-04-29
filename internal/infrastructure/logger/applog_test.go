@@ -237,8 +237,9 @@ func TestGenerateID_Format(t *testing.T) {
 }
 
 func TestGenerateID_Unique(t *testing.T) {
-	if GenerateID() == GenerateID() {
-		t.Error("two consecutive GenerateID() calls returned the same value")
+	a, b := GenerateID(), GenerateID()
+	if a == b {
+		t.Errorf("two consecutive GenerateID() calls returned the same value: %q", a)
 	}
 }
 
