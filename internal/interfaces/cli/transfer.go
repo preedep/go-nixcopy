@@ -59,6 +59,7 @@ var (
 	concurrentFiles int
 	retryAttempts   int
 	enableResume    bool
+	skipExisting    bool
 )
 
 var transferCmd = &cobra.Command{
@@ -116,6 +117,7 @@ func init() {
 	transferCmd.Flags().IntVar(&concurrentFiles, "concurrent-files", 0, "Number of concurrent file transfers")
 	transferCmd.Flags().IntVar(&retryAttempts, "retry-attempts", 0, "Number of retry attempts")
 	transferCmd.Flags().BoolVar(&enableResume, "resume", false, "Resume interrupted transfer if destination has a partial file (local and SFTP only)")
+	transferCmd.Flags().BoolVar(&skipExisting, "skip-existing", false, "Skip transfer if destination already has a file with the same size (idempotent retries)")
 }
 
 func runTransfer(cmd *cobra.Command, args []string) error {
@@ -210,6 +212,7 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 		Timeout:         cfg.Transfer.Timeout,
 		VerifyChecksum:  cfg.Transfer.VerifyChecksum,
 		EnableResume:    cfg.Transfer.EnableResume,
+		SkipExisting:    cfg.Transfer.SkipExisting,
 	}
 
 	transferUseCase := usecase.NewTransferUseCase(sourceStorage, destStorage, transferConfig, log)
@@ -309,24 +312,28 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 	fmt.Printf("\n\n=== Transfer Summary ===\n")
 	fmt.Printf("Total Files: %d\n", len(results))
 
-	var successCount, failCount int
+	var successCount, failCount, skipCount int
 	var totalBytes int64
 
 	for _, result := range results {
-		if result.Status == entity.TransferStatusCompleted {
+		switch result.Status {
+		case entity.TransferStatusCompleted:
 			successCount++
 			totalBytes += result.BytesTransferred
-		} else {
+		case entity.TransferStatusSkipped:
+			skipCount++
+		default:
 			failCount++
 		}
 	}
 
 	fmt.Printf("Successful: %d\n", successCount)
-	fmt.Printf("Failed: %d\n", failCount)
+	fmt.Printf("Skipped:    %d\n", skipCount)
+	fmt.Printf("Failed:     %d\n", failCount)
 	fmt.Printf("Total Bytes: %d (%.2f MB)\n", totalBytes, float64(totalBytes)/(1024*1024))
 	fmt.Printf("Total Duration: %s\n", totalDuration.Round(time.Millisecond))
 
-	if totalDuration.Seconds() > 0 {
+	if totalDuration.Seconds() > 0 && totalBytes > 0 {
 		fmt.Printf("Average Speed: %.2f MB/s\n", float64(totalBytes)/(1024*1024)/totalDuration.Seconds())
 	}
 

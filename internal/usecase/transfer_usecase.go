@@ -159,6 +159,30 @@ func (t *TransferUseCase) Transfer(
 		return nil, fmt.Errorf("directory transfer not supported in single file mode")
 	}
 
+	// Skip transfer if destination already holds a file of the same size.
+	// This makes DAG retries idempotent: files that completed in a previous attempt
+	// are not re-transferred.
+	if t.config.SkipExisting {
+		if destStat, err := t.dest.Stat(ctx, destPath); err == nil && destStat.Size == stat.Size {
+			result.Status = entity.TransferStatusSkipped
+			result.Duration = time.Since(startTime)
+			t.logger.Info("Skipping existing file",
+				applog.F("source", sourcePath),
+				applog.F("destination", destPath),
+				applog.F("size", stat.Size),
+			)
+			if progressChan != nil {
+				progressChan <- entity.TransferProgress{
+					FileName:         stat.Name,
+					TotalBytes:       stat.Size,
+					TransferredBytes: stat.Size,
+					Status:           entity.TransferStatusSkipped,
+				}
+			}
+			return result, nil
+		}
+	}
+
 	// Determine resume capability once — backends either implement Resumer or they don't.
 	srcResumer, srcCanResume := t.source.(repository.Resumer)
 	destResumer, destCanResume := t.dest.(repository.Resumer)

@@ -29,6 +29,7 @@ const (
 	TransferStatusInProgress TransferStatus = "in_progress"
 	TransferStatusCompleted  TransferStatus = "completed"
 	TransferStatusFailed     TransferStatus = "failed"
+	TransferStatusSkipped    TransferStatus = "skipped"
 )
 
 type FileInfo struct {
@@ -58,6 +59,7 @@ type TransferConfig struct {
 	Timeout         time.Duration
 	VerifyChecksum  bool
 	EnableResume    bool
+	SkipExisting    bool // skip transfer if destination already has a file with matching size
 }
 
 type TransferResult struct {

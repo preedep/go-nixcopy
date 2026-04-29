@@ -213,6 +213,9 @@ func applyCliFlags(cfg *config.Config) error {
 	if enableResume {
 		cfg.Transfer.EnableResume = true
 	}
+	if skipExisting {
+		cfg.Transfer.SkipExisting = true
+	}
 
 	// Set defaults if not set
 	if cfg.Transfer.BufferSize == 0 {

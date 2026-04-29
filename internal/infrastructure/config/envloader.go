@@ -178,6 +178,7 @@ func applyTransferEnv(t *TransferConfig) {
 	setEnvDuration(&t.Timeout, "NIXCOPY_TIMEOUT")
 	setEnvBool(&t.VerifyChecksum, "NIXCOPY_VERIFY_CHECKSUM")
 	setEnvBool(&t.EnableResume, "NIXCOPY_ENABLE_RESUME")
+	setEnvBool(&t.SkipExisting, "NIXCOPY_SKIP_EXISTING")
 }
 
 func setEnvString(dst *string, key string) {

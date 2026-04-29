@@ -129,6 +129,7 @@ type TransferConfig struct {
 	Timeout         time.Duration `yaml:"timeout" json:"timeout"`
 	VerifyChecksum  bool          `yaml:"verify_checksum" json:"verify_checksum"`
 	EnableResume    bool          `yaml:"enable_resume" json:"enable_resume"`
+	SkipExisting    bool          `yaml:"skip_existing" json:"skip_existing"`
 }
 
 type LoggingConfig struct {
