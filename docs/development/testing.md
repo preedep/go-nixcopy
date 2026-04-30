@@ -234,3 +234,18 @@ LoadFromEnv(cfg)
 | `internal/infrastructure/storage` | ~49% | Local fully unit-tested; FTPS/Blob/S3/SFTP nil-client guards + auth paths; happy paths need integration tag |
 
 Storage coverage in unit mode reflects the nil-client guard pattern — every backend's error paths are covered without credentials. Happy paths (List, Read, Write against real endpoints) are covered by integration tests (`-tags=integration`) against MinIO, SFTP, and FTPS containers (`make integration-test-local`).
+
+---
+
+## Integration Test Roadmap
+
+Planned scenarios beyond per-backend happy paths. All require the Docker Compose stack (`make integration-test-local`).
+
+| # | Scenario | File | Status |
+|---|---|---|---|
+| 1 | **Cross-backend transfers via TransferUseCase** — SFTP→S3, S3→SFTP, Local→SFTP, Local→S3, SFTP→FTPS, S3→FTPS | `transfer_integration_test.go` | ✅ done |
+| 2 | **Checksum verification against real backends** — `VerifyChecksum: true`; assert `TransferResult.Checksum` is non-empty SHA-256 hex | `transfer_integration_test.go` | ✅ done |
+| 3 | **SkipExisting across backends** — write a file to dest, run Transfer again, assert `TransferStatusSkipped` | `transfer_integration_test.go` | ✅ done |
+| 4 | **Resume across backends** — write partial dest, resume, assert full content and `ResumedFrom > 0` | `transfer_integration_test.go` | ✅ done |
+| 5 | **Batch transfer** — `TransferBatch` with 5+ files across SFTP→S3 and S3→SFTP | `transfer_integration_test.go` | ✅ done |
+| 6 | **Bandwidth throttle end-to-end** — `BandwidthLimit` set to 1 MB/s; assert transfer completes and duration is within expected range | `transfer_integration_test.go` | ✅ done |
