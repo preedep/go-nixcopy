@@ -96,7 +96,7 @@ go-nixcopy/
 │   ├── infrastructure/
 │   │   ├── config/            # YAML/JSON loader with ${ENV_VAR} expansion
 │   │   ├── logger/            # standard-app-log JSON emitter
-│   │   └── storage/           # local, sftp, ftps, blob, s3, factory
+│   │   └── storage/           # local, sftp, ftps, blob, s3, gcs, factory
 │   └── interfaces/cli/        # Cobra subcommands: transfer, list
 └── examples/                  # Sample config files per backend pair
 ```
@@ -389,7 +389,7 @@ The JSON summary goes to **stdout** — parse it with Loki / CloudWatch Insights
 - [x] Structured JSON logging (standard-app-log v1.0)
 - [x] Distroless Docker image, multi-arch (amd64 + arm64), config-free KPO mode
 - [x] S3 multipart upload (up to ~5 TiB) & Azure Blob parallel block upload (up to ~190 TiB)
-- [x] GitHub Actions CI with integration tests (MinIO + SFTP)
+- [x] GitHub Actions CI with integration tests (MinIO + SFTP + FTPS)
 
 ### Planned
 - [ ] Web UI for transfer management

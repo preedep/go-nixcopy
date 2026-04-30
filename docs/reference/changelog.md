@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Local Integration Test Environment
+
+- **`docker-compose.integration.yml`** — single-command local integration test environment: SFTP (`atmoz/sftp`, port 2222), FTPS (`Dockerfile.ftps-test`, port 21, explicit TLS, self-signed cert), MinIO/S3 (`minio/minio`, port 9000). All services have Docker healthchecks; `docker compose up --wait` blocks until all are healthy.
+- **`Dockerfile.ftps-test`** — native multi-arch FTPS test image built from `debian:bookworm-slim`. Replaces `stilliard/pure-ftpd` (x86_64-only, non-functional under Apple Silicon Rosetta). Installs pure-ftpd from the Debian ARM64 repo, generates a self-signed TLS cert at build time, and adds `/usr/sbin/nologin` to `/etc/shells` so PAM accepts the test user. Requires `privileged: true` in compose so pure-ftpd can call `setuid`/`setgid` after binding.
+- **`make integration-test-local`** — spins up all containers, creates the MinIO test bucket, runs `-tags=integration -race` tests against `./internal/infrastructure/storage/...`, then tears everything down, preserving the Go test exit code.
+- **`make integration-test-down`** — tears down containers and volumes without running tests.
+- **`./test-integration.sh`** — shell script alternative for CI-style individual `docker run`; supports suite filters (`local`, `s3`, `sftp`, `ftps`), `-v`, and `--no-clean`.
+- **`internal/infrastructure/storage/ftps_integration_test.go`** — 5 integration tests under `//go:build integration`: `WriteAndRead`, `Stat`, `List`, `Delete`, `CreateDirectory`. Skips automatically when `FTPS_HOST` is unset.
+
 ### Added — Google Cloud Storage (GCS)
 
 - **New GCS backend** (`internal/infrastructure/storage/gcs.go`) — implements `repository.Storage` for Google Cloud Storage buckets. Supports all GCP auth patterns:

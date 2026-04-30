@@ -95,7 +95,7 @@ go-nixcopy/
 │   ├── infrastructure/
 │   │   ├── config/            # YAML/JSON loader with ${ENV_VAR} expansion
 │   │   ├── logger/            # standard-app-log JSON emitter
-│   │   └── storage/           # local, sftp, ftps, blob, s3, factory
+│   │   └── storage/           # local, sftp, ftps, blob, s3, gcs, factory
 │   └── interfaces/cli/        # Cobra subcommands: transfer, list
 └── examples/                  # ตัวอย่าง config ต่อ backend pair
 ```
@@ -388,7 +388,7 @@ with DAG(
 - [x] Structured JSON logging (standard-app-log v1.0)
 - [x] Distroless Docker image, multi-arch (amd64 + arm64), รองรับ config-free KPO
 - [x] S3 multipart upload (สูงสุด ~5 TiB) และ Azure Blob parallel block upload (สูงสุด ~190 TiB)
-- [x] GitHub Actions CI พร้อม integration tests (MinIO + SFTP)
+- [x] GitHub Actions CI พร้อม integration tests (MinIO + SFTP + FTPS)
 
 ### แผนงานในอนาคต
 - [ ] รองรับ Google Cloud Storage
