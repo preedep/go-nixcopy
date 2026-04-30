@@ -1,18 +1,23 @@
 # docker-compose.integration.yml — local integration-test environment
 #
 # Services:
-#   sftp        — atmoz/sftp      port 2222          user: testuser / testpass
-#   ftps        — pure-ftpd       port 21, passive 30000-30009  explicit TLS (self-signed)
-#   minio       — MinIO           port 9000          S3-compatible
-#   minio-setup — one-shot job that creates test-bucket once MinIO is healthy
+#   sftp   — atmoz/sftp      port 2222          user: testuser / testpass
+#   ftps   — Dockerfile.ftps-test  port 21, passive 30000-30009  explicit TLS (self-signed, native multi-arch)
+#   minio  — MinIO           port 9000          S3-compatible, user: minioadmin / minioadmin
+#
+# test-bucket is created by the Makefile after --wait, not by a one-shot service,
+# because docker compose --wait treats any exited container (even exit 0) as a failure.
 #
 # Usage:
-#   make integration-test-local    # up, run tests, down
+#   make integration-test-local    # up, create bucket, run tests, down
 #   make integration-test-down     # tear down only
+
+name: nixcopy-integration
 
 services:
   sftp:
     image: atmoz/sftp:latest
+    platform: linux/amd64
     command: "testuser:testpass:::upload"
     ports:
       - "2222:22"
@@ -22,28 +27,25 @@ services:
       interval: 2s
       timeout: 5s
       retries: 15
+      start_period: 5s
 
   ftps:
-    image: stilliard/pure-ftpd:latest
-    environment:
-      FTP_USER_NAME: testuser
-      FTP_USER_PASS: testpass
-      FTP_USER_HOME: /home/testuser
-      # Advertise the loopback address so passive-mode data connections reach the
-      # mapped host ports (30000-30009) rather than the container-internal IP.
-      PUBLICHOST: "127.0.0.1"
-      PASSIVE_MIN_PORT: "30000"
-      PASSIVE_MAX_PORT: "30009"
-      # --tls=1  allow both clear-text and TLS; a self-signed cert is auto-generated.
-      ADDED_FLAGS: "--tls=1"
+    build:
+      context: .
+      dockerfile: Dockerfile.ftps-test
+    # pure-ftpd drops privileges after bind (setuid/setgid); Docker's default
+    # seccomp profile blocks these syscalls, so privileged is required here.
+    privileged: true
     ports:
       - "21:21"
       - "30000-30009:30000-30009"
     healthcheck:
-      test: ["CMD-SHELL", "ps -e -o comm | grep -q pure-ftpd"]
-      interval: 2s
+      # Use bash /dev/tcp to verify port 21 is accepting connections.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/21 && exec 3>&-"]
+      interval: 3s
       timeout: 5s
       retries: 20
+      start_period: 10s
 
   minio:
     image: minio/minio:latest
@@ -58,13 +60,4 @@ services:
       interval: 2s
       timeout: 5s
       retries: 15
-
-  minio-setup:
-    image: minio/mc:latest
-    depends_on:
-      minio:
-        condition: service_healthy
-    environment:
-      MC_HOST_local: "http://minioadmin:minioadmin@minio:9000"
-    entrypoint: ["mc", "mb", "--ignore-existing", "local/test-bucket"]
-    restart: "no"
+      start_period: 5s

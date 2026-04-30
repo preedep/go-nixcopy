@@ -144,8 +144,11 @@ docker-run-config: ## Run Docker container mounting a local config.yaml
 COMPOSE_INT = docker-compose.integration.yml
 
 integration-test-local: ## Spin up SFTP + FTPS + MinIO via Compose and run all integration tests locally
-	docker compose -f $(COMPOSE_INT) up -d --wait --timeout 60
-	docker compose -f $(COMPOSE_INT) wait minio-setup || true
+	docker compose -f $(COMPOSE_INT) up -d --wait --timeout 120
+	docker run --rm \
+		--network nixcopy-integration_default \
+		-e MC_HOST_local=http://minioadmin:minioadmin@minio:9000 \
+		minio/mc mb --ignore-existing local/test-bucket
 	@S3_ENDPOINT=http://localhost:9000 S3_ACCESS_KEY=minioadmin S3_SECRET_KEY=minioadmin \
 	 S3_BUCKET=test-bucket S3_REGION=us-east-1 \
 	 SFTP_HOST=localhost SFTP_PORT=2222 SFTP_USERNAME=testuser SFTP_PASSWORD=testpass \

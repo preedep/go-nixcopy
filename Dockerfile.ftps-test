@@ -1,0 +1,35 @@
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        pure-ftpd openssl \
+    && rm -rf /var/lib/apt/lists/*
+
+# pure-ftpd expects: certificate + key concatenated, cert first, then key.
+RUN mkdir -p /etc/ssl/private && \
+    openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+        -out /tmp/cert.pem -keyout /tmp/key.pem \
+        -subj "/CN=localhost/O=nixcopy-test/C=US" && \
+    cat /tmp/cert.pem /tmp/key.pem > /etc/ssl/private/pure-ftpd.pem && \
+    chmod 600 /etc/ssl/private/pure-ftpd.pem && \
+    rm /tmp/cert.pem /tmp/key.pem
+
+# pam_shells.so (used by pure-ftpd PAM config) rejects shells not listed in
+# /etc/shells. Add nologin so PAM accepts the user without granting SSH access.
+RUN echo /usr/sbin/nologin >> /etc/shells && \
+    useradd -m -s /usr/sbin/nologin testuser && \
+    echo "testuser:testpass" | chpasswd && \
+    chmod 755 /home/testuser
+
+EXPOSE 21 30000-30009
+
+CMD ["pure-ftpd", \
+     "-S", "21", \
+     "-l", "unix", \
+     "-A", \
+     "-E", \
+     "-j", \
+     "-P", "127.0.0.1", \
+     "--tls=1", \
+     "-p", "30000:30009", \
+     "-c", "10", \
+     "-C", "5"]
