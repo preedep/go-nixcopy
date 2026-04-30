@@ -199,7 +199,7 @@ func TestTransfer_Resume_DestSizeExceedsSource(t *testing.T) {
 	source := mocks.NewMockStorage()
 	dest := mocks.NewMockStorage()
 
-	srcContent := []byte("short") // 5 bytes
+	srcContent := []byte("short")                                    // 5 bytes
 	dstContent := []byte("much longer stale content at destination") // > 5 bytes
 
 	source.AddFile("/src/file.txt", srcContent, &entity.FileInfo{
