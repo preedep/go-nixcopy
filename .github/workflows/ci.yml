@@ -40,6 +40,12 @@ jobs:
         uses: golangci/golangci-lint-action@v6
         with:
           version: latest
+          # goinstall compiles golangci-lint from source using the installed Go
+          # toolchain, so runtime.Version() matches the module's go directive.
+          # The default "binary" mode downloads a pre-built binary that may have
+          # been compiled with an older Go and will refuse go.mod targets newer
+          # than its own build version.
+          install-mode: goinstall
 
   test:
     name: Unit Tests
