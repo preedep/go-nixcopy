@@ -2,8 +2,6 @@ module github.com/preedep/go-nixcopy
 
 go 1.25.0
 
-toolchain go1.25.4
-
 require (
 	cloud.google.com/go/storage v1.62.1
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.4.0
