@@ -317,3 +317,178 @@ func TestTransferBatch_SkipExisting_ThreeWayOutcome(t *testing.T) {
 		t.Error("Write was never called — b.txt should have been transferred")
 	}
 }
+
+// --------------------------------------------------------------------------
+// E — Resume offset recalculated per retry
+// --------------------------------------------------------------------------
+
+// failOnceDest wraps MockStorage and implements both repository.Storage and
+// repository.Resumer.  Its AppendWrite succeeds normally on every call except
+// the very first one: that call writes extraLen bytes into the inner mock (so
+// the partial destination grows) and then returns an error.  On every
+// subsequent call it delegates transparently.  This lets us verify that the
+// use case re-reads the destination size on each retry and updates resumeOffset
+// rather than reusing the offset from the previous attempt.
+type failOnceDest struct {
+	inner       *mocks.MockStorage
+	mu          sync.Mutex
+	appendCalls int
+	extraLen    int // bytes to persist on the first (failing) AppendWrite
+}
+
+func (f *failOnceDest) Connect(ctx context.Context) error    { return f.inner.Connect(ctx) }
+func (f *failOnceDest) Disconnect(ctx context.Context) error { return f.inner.Disconnect(ctx) }
+func (f *failOnceDest) List(ctx context.Context, path string) ([]entity.FileInfo, error) {
+	return f.inner.List(ctx, path)
+}
+func (f *failOnceDest) Read(ctx context.Context, path string) (io.ReadCloser, int64, error) {
+	return f.inner.Read(ctx, path)
+}
+func (f *failOnceDest) Stat(ctx context.Context, path string) (*entity.FileInfo, error) {
+	return f.inner.Stat(ctx, path)
+}
+func (f *failOnceDest) Write(ctx context.Context, path string, reader io.Reader, size int64) error {
+	return f.inner.Write(ctx, path, reader, size)
+}
+func (f *failOnceDest) CreateDirectory(ctx context.Context, path string) error {
+	return f.inner.CreateDirectory(ctx, path)
+}
+func (f *failOnceDest) Delete(ctx context.Context, path string) error {
+	return f.inner.Delete(ctx, path)
+}
+func (f *failOnceDest) ReadFrom(ctx context.Context, path string, offset int64) (io.ReadCloser, int64, error) {
+	return f.inner.ReadFrom(ctx, path, offset)
+}
+func (f *failOnceDest) AppendWrite(ctx context.Context, path string, reader io.Reader, size, offset int64) error {
+	f.mu.Lock()
+	f.appendCalls++
+	isFirst := f.appendCalls == 1
+	f.mu.Unlock()
+
+	if !isFirst {
+		return f.inner.AppendWrite(ctx, path, reader, size, offset)
+	}
+
+	// First call: persist extraLen bytes to simulate a partial write, then fail.
+	extra := make([]byte, f.extraLen)
+	n, _ := io.ReadFull(reader, extra)
+	_ = f.inner.AppendWrite(ctx, path, bytes.NewReader(extra[:n]), int64(n), offset)
+	return errors.New("simulated partial write failure")
+}
+
+// TestTransfer_Resume_OffsetRecalculatedPerRetry verifies that when an
+// AppendWrite fails mid-stream (having already grown the destination), the
+// next retry re-stats the destination and uses the updated size as its
+// resumeOffset rather than the offset from the previous attempt.
+//
+// Scenario:
+//
+//	source = "Hello, World!" (13 bytes)
+//	dest   = "Hello"         (5 bytes) initially
+//	attempt 1: resumeOffset=5, AppendWrite writes ", Wo" (4 bytes) then fails
+//	           → dest = "Hello, Wo" (9 bytes)
+//	attempt 2: re-stat → resumeOffset=9, AppendWrite writes "rld!" → success
+//	           → result.ResumedFrom = 9, not 5
+func TestTransfer_Resume_OffsetRecalculatedPerRetry(t *testing.T) {
+	source := mocks.NewMockStorage()
+	inner := mocks.NewMockStorage()
+
+	srcContent := []byte("Hello, World!") // 13 bytes
+	dstContent := []byte("Hello")         // 5 bytes — partial dest
+
+	source.AddFile("/src/file.txt", srcContent, &entity.FileInfo{
+		Path: "/src/file.txt", Name: "file.txt", Size: int64(len(srcContent)),
+	})
+	inner.AddFile("/dst/file.txt", dstContent, &entity.FileInfo{
+		Path: "/dst/file.txt", Name: "file.txt", Size: int64(len(dstContent)),
+	})
+
+	dest := &failOnceDest{inner: inner, extraLen: 4}
+
+	cfg := &entity.TransferConfig{
+		BufferSize:      1024,
+		ConcurrentFiles: 1,
+		RetryAttempts:   1,
+		RetryDelay:      time.Millisecond,
+		EnableResume:    true,
+	}
+
+	uc := NewTransferUseCase(source, dest, cfg, applog.NewNopLogger())
+	result, err := uc.Transfer(context.Background(), "/src/file.txt", "/dst/file.txt", nil)
+
+	if err != nil {
+		t.Fatalf("Transfer() error = %v", err)
+	}
+	if result.Status != entity.TransferStatusCompleted {
+		t.Errorf("Status = %v, want completed", result.Status)
+	}
+	// Attempt 1 grew dest from 5 → 9 bytes before failing.
+	// Attempt 2 re-stats and gets resumeOffset=9, which is recorded in the result.
+	if result.ResumedFrom != 9 {
+		t.Errorf("ResumedFrom = %d, want 9 (offset must reflect updated dest size after partial write)", result.ResumedFrom)
+	}
+	if got := inner.FileContent["/dst/file.txt"]; !bytes.Equal(got, srcContent) {
+		t.Errorf("dest content = %q, want %q", got, srcContent)
+	}
+}
+
+// --------------------------------------------------------------------------
+// F — Batch with ConcurrentFiles=1 (fully sequential execution)
+// --------------------------------------------------------------------------
+
+// TestTransferBatch_ConcurrentFiles_1_Sequential runs a 5-file batch through
+// a semaphore of size 1, which forces sequential execution.  It verifies that
+// all files complete, all destination content is correct, and there is no
+// deadlock (the semaphore drain step at the end of TransferBatch must succeed
+// even though the for-loop held the only slot one goroutine at a time).
+func TestTransferBatch_ConcurrentFiles_1_Sequential(t *testing.T) {
+	source := mocks.NewMockStorage()
+	dest := mocks.NewMockStorage()
+
+	specs := []struct {
+		src     string
+		name    string
+		content []byte
+	}{
+		{"/src/a.txt", "a.txt", []byte("alpha")},
+		{"/src/b.txt", "b.txt", []byte("beta")},
+		{"/src/c.txt", "c.txt", []byte("gamma")},
+		{"/src/d.txt", "d.txt", []byte("delta")},
+		{"/src/e.txt", "e.txt", []byte("epsilon")},
+	}
+
+	var paths []string
+	for _, s := range specs {
+		source.AddFile(s.src, s.content, &entity.FileInfo{
+			Path: s.src, Name: s.name, Size: int64(len(s.content)),
+		})
+		paths = append(paths, s.src)
+	}
+
+	cfg := &entity.TransferConfig{
+		BufferSize:      1024,
+		ConcurrentFiles: 1,
+		RetryAttempts:   0,
+	}
+
+	uc := NewTransferUseCase(source, dest, cfg, applog.NewNopLogger())
+	results, err := uc.TransferBatch(context.Background(), paths, "/dst/", nil)
+
+	if err != nil {
+		t.Fatalf("TransferBatch error = %v", err)
+	}
+	if len(results) != 5 {
+		t.Fatalf("results count = %d, want 5", len(results))
+	}
+	for i, r := range results {
+		if r.Status != entity.TransferStatusCompleted {
+			t.Errorf("results[%d] (%s) Status = %v, want completed", i, specs[i].src, r.Status)
+		}
+	}
+	for _, s := range specs {
+		dstPath := "/dst/" + s.name
+		if got := dest.FileContent[dstPath]; !bytes.Equal(got, s.content) {
+			t.Errorf("dest[%s] = %q, want %q", dstPath, got, s.content)
+		}
+	}
+}
