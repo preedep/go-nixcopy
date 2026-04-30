@@ -6,6 +6,7 @@
 
 - [AWS S3 Authentication](#aws-s3-authentication)
 - [Azure Blob Storage Authentication](#azure-blob-storage-authentication)
+- [Google Cloud Storage Authentication](#google-cloud-storage-authentication)
 - [ตัวอย่างการใช้งาน](#ตัวอย่างการใช้งาน)
 - [Best Practices](#best-practices)
 
@@ -357,6 +358,142 @@ blob:
 
 ---
 
+---
+
+## Google Cloud Storage Authentication
+
+GCS รองรับ authentication หลายแบบผ่าน Google Cloud client library
+
+### 1. Application Default Credentials (ADC)
+
+**เหมาะสำหรับ:** GCE VMs, GKE Workload Identity, Cloud Run, App Engine, local `gcloud auth`
+
+```yaml
+gcs:
+  project_id: my-gcp-project
+  bucket: my-bucket
+  auth_type: application_default
+```
+
+**วิธีการตั้งค่า:**
+
+ADC ตรวจหา credentials ตามลำดับ:
+1. `GOOGLE_APPLICATION_CREDENTIALS` env var → path ของ JSON key file
+2. `gcloud auth application-default login` → สำหรับ local dev
+3. GCE/GKE/Cloud Run metadata server → credentials อัตโนมัติ
+
+**ข้อดี:**
+- ไม่ต้องเก็บ credentials ในไฟล์ config
+- ทำงานอัตโนมัติบน GCP infrastructure
+- GKE Workload Identity ใช้ผ่าน ADC โดยอัตโนมัติ
+
+---
+
+### 2. Service Account (JSON Key File)
+
+**เหมาะสำหรับ:** Non-GCP environments, on-premise, cross-cloud
+
+```yaml
+gcs:
+  project_id: my-gcp-project
+  bucket: my-bucket
+  auth_type: service_account
+  credentials_file: /path/to/service-account.json
+  # หรือ inline JSON
+  # credentials_json: '{"type":"service_account","project_id":"..."}'
+```
+
+**วิธีสร้าง Service Account Key:**
+```bash
+gcloud iam service-accounts create nixcopy-sa \
+  --display-name="nixcopy service account"
+
+gcloud projects add-iam-policy-binding my-project \
+  --member="serviceAccount:nixcopy-sa@my-project.iam.gserviceaccount.com" \
+  --role="roles/storage.objectAdmin"
+
+gcloud iam service-accounts keys create sa.json \
+  --iam-account=nixcopy-sa@my-project.iam.gserviceaccount.com
+```
+
+**ข้อดี:**
+- ใช้ได้นอก GCP
+- Fine-grained IAM permissions
+
+**ข้อเสีย:**
+- ต้องจัดการ key file อย่างปลอดภัย
+
+---
+
+### 3. Impersonation (เทียบเท่า AWS assume_role)
+
+**เหมาะสำหรับ:** Cross-SA delegation, least-privilege patterns
+
+```yaml
+gcs:
+  project_id: my-gcp-project
+  bucket: my-bucket
+  auth_type: impersonate
+  impersonate_service_account: worker@my-project.iam.gserviceaccount.com
+  delegates:                          # optional chain
+    - mid-sa@my-project.iam.gserviceaccount.com
+```
+
+**วิธีการตั้งค่า:**
+```bash
+# ให้ base identity มีสิทธิ์ impersonate target SA
+gcloud iam service-accounts add-iam-policy-binding \
+  worker@my-project.iam.gserviceaccount.com \
+  --member="serviceAccount:caller@my-project.iam.gserviceaccount.com" \
+  --role="roles/iam.serviceAccountTokenCreator"
+```
+
+**ข้อดี:**
+- ไม่ต้องสร้าง long-lived key files
+- Audit trail ชัดเจน
+- เหมาะสำหรับ least-privilege architecture
+
+---
+
+### 4. Access Token (Short-lived)
+
+**เหมาะสำหรับ:** CI/CD pipelines ที่มี token จาก external system
+
+```yaml
+gcs:
+  project_id: my-gcp-project
+  bucket: my-bucket
+  auth_type: access_token
+  access_token: ya29.your-short-lived-token
+```
+
+**วิธีได้ token:**
+```bash
+# จาก gcloud
+TOKEN=$(gcloud auth print-access-token)
+NIXCOPY_DEST_ACCESS_TOKEN=$TOKEN nixcopy transfer ...
+```
+
+**ข้อดี:**
+- ไม่มี long-lived credentials
+- Token หมดอายุเองโดยอัตโนมัติ
+
+**ข้อเสีย:**
+- Token มีอายุสั้น (~1 ชั่วโมง) ต้อง refresh เอง
+
+---
+
+### GCS Auth Summary
+
+| auth_type | เหมาะสำหรับ | ต้องการ |
+|---|---|---|
+| `application_default` | GCE VM, GKE, Cloud Run, local dev | ไม่มี (ADC อัตโนมัติ) |
+| `service_account` | On-premise, AWS, Azure | JSON key file |
+| `impersonate` | Cross-SA delegation | base identity + `roles/iam.serviceAccountTokenCreator` |
+| `access_token` | CI/CD, short-lived | OAuth2 token string |
+
+---
+
 ## ตัวอย่างการใช้งาน
 
 ### Scenario 1: EC2 to Azure VM
@@ -458,6 +595,55 @@ destination:
     region: us-east-1
     bucket: account-b-bucket
     auth_type: iam_role
+```
+
+---
+
+### Scenario 5: GKE to GCS (Workload Identity)
+
+**Source (GKE pod):** ADC (Workload Identity — ไม่ต้องระบุ credentials)  
+**Destination (GCS):** ADC
+
+```yaml
+source:
+  type: sftp
+  sftp:
+    host: internal-sftp.company.com
+    port: 22
+    username: ${SFTP_USER}
+    password: ${SFTP_PASSWORD}
+
+destination:
+  type: gcs
+  gcs:
+    project_id: my-gcp-project
+    bucket: archive-bucket
+    auth_type: application_default   # GKE Workload Identity ผ่าน ADC
+```
+
+---
+
+### Scenario 6: On-premise to GCS (Service Account)
+
+**Source (SFTP):** Username/Password  
+**Destination (GCS):** Service Account JSON key
+
+```yaml
+source:
+  type: sftp
+  sftp:
+    host: onprem-sftp.company.com
+    port: 22
+    username: transfer-user
+    password: ${SFTP_PASSWORD}
+
+destination:
+  type: gcs
+  gcs:
+    project_id: my-gcp-project
+    bucket: backup-bucket
+    auth_type: service_account
+    credentials_file: ${GOOGLE_APPLICATION_CREDENTIALS}
 ```
 
 ---
@@ -584,9 +770,29 @@ destination:
 
 ---
 
+### Google Cloud Storage Issues
+
+**Error: "could not find default credentials"**
+- รัน `gcloud auth application-default login` บนเครื่อง local
+- บน GKE: ตรวจสอบว่า Workload Identity เปิดใช้งานและ ServiceAccount annotated ถูกต้อง
+- บน GCE: ตรวจสอบว่า VM มี service account attached
+
+**Error: "failed to create impersonation credentials"**
+- ตรวจสอบว่า base identity มี `roles/iam.serviceAccountTokenCreator` บน target SA
+- ตรวจสอบ `impersonate_service_account` email ถูกต้อง
+
+**Error: "Permission denied on bucket"**
+- ตรวจสอบ IAM binding: `roles/storage.objectAdmin` หรือ `roles/storage.objectUser`
+- ตรวจสอบ bucket-level IAM policy
+
+---
+
 ## 📚 เอกสารอ้างอิง
 
 - [AWS IAM Best Practices](https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html)
 - [Azure Managed Identities](https://docs.microsoft.com/en-us/azure/active-directory/managed-identities-azure-resources/)
 - [AWS STS AssumeRole](https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRole.html)
 - [Azure Storage SAS](https://docs.microsoft.com/en-us/azure/storage/common/storage-sas-overview)
+- [GCP Application Default Credentials](https://cloud.google.com/docs/authentication/application-default-credentials)
+- [GKE Workload Identity](https://cloud.google.com/kubernetes-engine/docs/how-to/workload-identity)
+- [GCP Service Account Impersonation](https://cloud.google.com/iam/docs/impersonating-service-accounts)

@@ -75,7 +75,7 @@ nixcopy transfer -c config.yaml \
 
 | Flag | Description | Example |
 |------|-------------|---------|
-| `--source-type` | Storage type (sftp, ftps, blob, s3) | `--source-type sftp` |
+| `--source-type` | Storage type (sftp, ftps, blob, s3, gcs) | `--source-type sftp` |
 | `--source-auth-type` | Authentication type | `--source-auth-type iam_role` |
 
 #### SFTP/FTPS Source Flags
@@ -106,13 +106,24 @@ nixcopy transfer -c config.yaml \
 | `--source-account-key` | Storage account key | `--source-account-key abc123...` |
 | `--source-container` | Container name | `--source-container mycontainer` |
 
+#### GCS Source Flags
+
+| Flag | Description | Example |
+|------|-------------|---------|
+| `--source-bucket` | GCS bucket name | `--source-bucket my-bucket` |
+| `--source-gcs-project` | GCP project ID | `--source-gcs-project my-project` |
+| `--source-auth-type` | Auth type: `application_default`, `service_account`, `impersonate`, `access_token` | `--source-auth-type application_default` |
+| `--source-credentials-file` | Path to service account JSON key file | `--source-credentials-file /path/to/sa.json` |
+| `--source-impersonate-service-account` | Service account to impersonate | `--source-impersonate-service-account sa@proj.iam.gserviceaccount.com` |
+| `--source-access-token` | Short-lived OAuth2 access token | `--source-access-token ya29.token` |
+
 ### 🔹 Destination Storage Flags
 
 #### Common Destination Flags
 
 | Flag | Description | Example |
 |------|-------------|---------|
-| `--dest-type` | Storage type (sftp, ftps, blob, s3) | `--dest-type s3` |
+| `--dest-type` | Storage type (sftp, ftps, blob, s3, gcs) | `--dest-type s3` |
 | `--dest-auth-type` | Authentication type | `--dest-auth-type access_key` |
 
 #### SFTP/FTPS Destination Flags
@@ -142,6 +153,17 @@ nixcopy transfer -c config.yaml \
 | `--dest-account-name` | Storage account name | `--dest-account-name deststorage` |
 | `--dest-account-key` | Storage account key | `--dest-account-key xyz789...` |
 | `--dest-container` | Container name | `--dest-container destcontainer` |
+
+#### GCS Destination Flags
+
+| Flag | Description | Example |
+|------|-------------|---------|
+| `--dest-bucket` | GCS bucket name | `--dest-bucket my-dest-bucket` |
+| `--dest-gcs-project` | GCP project ID | `--dest-gcs-project my-project` |
+| `--dest-auth-type` | Auth type: `application_default`, `service_account`, `impersonate`, `access_token` | `--dest-auth-type application_default` |
+| `--dest-credentials-file` | Path to service account JSON key file | `--dest-credentials-file /path/to/sa.json` |
+| `--dest-impersonate-service-account` | Service account to impersonate | `--dest-impersonate-service-account sa@proj.iam.gserviceaccount.com` |
+| `--dest-access-token` | Short-lived OAuth2 access token | `--dest-access-token ya29.token` |
 
 ### 🔹 Transfer Configuration Flags
 
@@ -233,7 +255,38 @@ nixcopy transfer \
   -d documents/myfile.pdf
 ```
 
-### 5. Override Config File Parameters
+### 5. Local to GCS (Application Default Credentials — GKE/GCE)
+
+```bash
+nixcopy transfer \
+  --source-type local \
+  -s /data/exports/ \
+  --dest-type gcs \
+  --dest-bucket my-gcs-bucket \
+  --dest-gcs-project my-gcp-project \
+  --dest-auth-type application_default \
+  -d uploads/
+```
+
+### 5a. SFTP to GCS (Service Account key file)
+
+```bash
+nixcopy transfer \
+  --source-type sftp \
+  --source-host sftp.example.com \
+  --source-port 22 \
+  --source-username sftpuser \
+  --source-password "MyP@ss" \
+  -s /data/reports/ \
+  --dest-type gcs \
+  --dest-bucket archive-bucket \
+  --dest-gcs-project my-gcp-project \
+  --dest-auth-type service_account \
+  --dest-credentials-file /secrets/sa.json \
+  -d reports/
+```
+
+### 6. Override Config File Parameters
 
 ```bash
 # ใช้ config.yaml แต่ override credentials
@@ -268,7 +321,7 @@ nixcopy transfer -c config.yaml \
 
 | Env Var | Applies to | Description |
 |---|---|---|
-| `NIXCOPY_SOURCE_TYPE` | all | Storage type: `local`, `sftp`, `ftps`, `s3`, `blob` |
+| `NIXCOPY_SOURCE_TYPE` | all | Storage type: `local`, `sftp`, `ftps`, `s3`, `blob`, `gcs` |
 | `NIXCOPY_SOURCE_BASE_PATH` | local | Base directory |
 | `NIXCOPY_SOURCE_HOST` | sftp, ftps | Hostname or IP |
 | `NIXCOPY_SOURCE_PORT` | sftp, ftps | Port number |
@@ -302,6 +355,13 @@ nixcopy transfer -c config.yaml \
 | `NIXCOPY_SOURCE_CLIENT_ID` | blob | Azure client ID (SP / user-assigned MI) |
 | `NIXCOPY_SOURCE_CLIENT_SECRET` | blob | Azure client secret (`service_principal`) |
 | `NIXCOPY_SOURCE_USE_MANAGED_IDENTITY` | blob | Enable managed identity: `true`/`false` |
+| `NIXCOPY_SOURCE_GCS_PROJECT` | gcs | GCP project ID |
+| `NIXCOPY_SOURCE_BUCKET` | s3, gcs | Bucket name |
+| `NIXCOPY_SOURCE_AUTH_TYPE` | s3, blob, gcs | Auth type (see tables below) |
+| `NIXCOPY_SOURCE_CREDENTIALS_FILE` | gcs | Service account JSON key file path |
+| `NIXCOPY_SOURCE_CREDENTIALS_JSON` | gcs | Inline service account JSON |
+| `NIXCOPY_SOURCE_IMPERSONATE_SA` | gcs | Service account to impersonate |
+| `NIXCOPY_SOURCE_ACCESS_TOKEN` | gcs | Short-lived OAuth2 access token |
 
 ### Destination Storage
 
@@ -309,7 +369,7 @@ Same set of variables with `NIXCOPY_DEST_` prefix:
 
 | Env Var | Applies to | Description |
 |---|---|---|
-| `NIXCOPY_DEST_TYPE` | all | Storage type: `local`, `sftp`, `ftps`, `s3`, `blob` |
+| `NIXCOPY_DEST_TYPE` | all | Storage type: `local`, `sftp`, `ftps`, `s3`, `blob`, `gcs` |
 | `NIXCOPY_DEST_BASE_PATH` | local | Base directory |
 | `NIXCOPY_DEST_HOST` | sftp, ftps | Hostname or IP |
 | `NIXCOPY_DEST_PORT` | sftp, ftps | Port number |
@@ -343,6 +403,13 @@ Same set of variables with `NIXCOPY_DEST_` prefix:
 | `NIXCOPY_DEST_CLIENT_ID` | blob | Azure client ID |
 | `NIXCOPY_DEST_CLIENT_SECRET` | blob | Azure client secret |
 | `NIXCOPY_DEST_USE_MANAGED_IDENTITY` | blob | Enable managed identity |
+| `NIXCOPY_DEST_GCS_PROJECT` | gcs | GCP project ID |
+| `NIXCOPY_DEST_BUCKET` | s3, gcs | Bucket name |
+| `NIXCOPY_DEST_AUTH_TYPE` | s3, blob, gcs | Auth type (see tables below) |
+| `NIXCOPY_DEST_CREDENTIALS_FILE` | gcs | Service account JSON key file path |
+| `NIXCOPY_DEST_CREDENTIALS_JSON` | gcs | Inline service account JSON |
+| `NIXCOPY_DEST_IMPERSONATE_SA` | gcs | Service account to impersonate |
+| `NIXCOPY_DEST_ACCESS_TOKEN` | gcs | Short-lived OAuth2 access token |
 
 ### Transfer Settings
 

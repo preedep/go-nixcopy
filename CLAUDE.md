@@ -39,6 +39,11 @@ make fmt                # go fmt + gofmt
 # Docker
 make docker-build && make docker-run
 
+# Integration tests (local — requires Docker)
+make integration-test-local   # spin up SFTP + FTPS + MinIO, run integration suite, tear down
+make integration-test-down    # tear down containers without running tests
+./test-integration.sh ftps    # run only the FTPS suite via individual docker run
+
 # Clean
 make clean              # build artifacts (bin/)
 make clean-dist         # release artifacts (dist/)
@@ -50,6 +55,16 @@ git tag v1.x.x && git push origin v1.x.x  # trigger full release in CI
 ```
 
 See [BUILD.md](docs/development/build.md) for release build flags, binary size benchmarks, and CI/CD integration examples.
+
+## CI Pitfalls
+
+Three non-obvious issues that have already burned us — don't repeat them:
+
+1. **golangci-lint `install-mode: goinstall`** (`.github/workflows/ci.yml`): golangci-lint pre-built binaries are compiled with the Go version available at release time. When `go.mod` targets a newer Go minor version (e.g. `go 1.25`), the binary refuses to run with *"Go language version used to build golangci-lint is lower than targeted"*. The CI uses `install-mode: goinstall` so golangci-lint is compiled from source with the currently-installed Go toolchain. Do not change this back to `binary`.
+
+2. **Never commit the `toolchain` directive in `go.mod`**: `go mod tidy` auto-inserts `toolchain goX.Y.Z` based on the developer's local patch version (e.g. `toolchain go1.25.4`). CI runners typically only have the `.0` patch release (`go1.25.0`), causing *"version go1.25.4 does not match go tool version go1.25.0"*. After running `go mod tidy` locally, remove the `toolchain` line before committing.
+
+3. **Dockerfile builder image must match `go.mod` Go version**: The builder stage (`golang:X.Y-alpineZ`) must be kept in sync with the `go` directive in `go.mod`. A mismatch causes `go mod download` to fail with *"go.mod requires go >= X.Y (running go A.B)"*.
 
 ## Distribution Channels
 
@@ -88,7 +103,7 @@ cmd/nixcopy/main.go
 - `mocks/storage_mock.go` — `MockStorage` satisfies the `Storage` and `Resumer` interfaces; used in all unit tests
 
 ### Infrastructure (`internal/infrastructure/`)
-- **storage/** — factory + one file per backend: `local.go`, `sftp.go`, `ftps.go`, `blob.go` (Azure), `s3.go` (AWS)
+- **storage/** — factory + one file per backend: `local.go`, `sftp.go`, `ftps.go`, `blob.go` (Azure), `s3.go` (AWS), `gcs.go` (GCP)
 - **config/** — YAML/JSON loader with `${ENV_VAR}` expansion; precedence: CLI flags > env vars > config file > defaults
 - **logger/** — `StandardLogger` in `applog.go` emits one JSON line per call conforming to [standard-app-log v1.0](https://github.com/preedep/standard-app-log). Log types: `APP_LOG`, `REQ_EX_LOG`, `RES_EX_LOG`. Use `NewNopLogger()` in tests (replaces `zap.NewNop()`). Zap is still in `logger.go` as a dead stub; the CLI no longer calls it. Context injection at startup: `NIXCOPY_CORRELATION_ID`, `NIXCOPY_APP_ID`, `NIXCOPY_APP_VERSION`, `POD_NAME` env vars.
 
@@ -154,13 +169,15 @@ For full CLI flag reference and precedence rules, see [CLI_USAGE.md](docs/guides
 
 Auth methods that require cloud metadata (IAM roles, Managed Identity) only work on the matching infrastructure. Mixing them silently fails.
 
-| Environment | AWS S3 auth | Azure Blob auth |
-|---|---|---|
-| AWS EC2 / ECS / Lambda | `iam_role` ✅ recommended | `shared_key` / `sas_token` / `service_principal` |
-| Azure VM / App Service | `access_key` | `managed_identity` ✅ recommended |
-| Amazon EKS | `web_identity` (IRSA) ✅ | `service_principal` |
-| Azure AKS | `access_key` | `managed_identity` (Workload Identity) ✅ |
-| On-premise / local | `access_key` | `shared_key` / `sas_token` |
+| Environment | AWS S3 auth | Azure Blob auth | GCS auth |
+|---|---|---|---|
+| AWS EC2 / ECS / Lambda | `iam_role` ✅ recommended | `shared_key` / `sas_token` / `service_principal` | `service_account` |
+| Azure VM / App Service | `access_key` | `managed_identity` ✅ recommended | `service_account` |
+| GCE VM | `access_key` | `shared_key` / `sas_token` | `application_default` ✅ recommended |
+| Amazon EKS | `web_identity` (IRSA) ✅ | `service_principal` | `service_account` |
+| Azure AKS | `access_key` | `managed_identity` (Workload Identity) ✅ | `service_account` |
+| GKE | `access_key` | `shared_key` / `sas_token` | `application_default` (Workload Identity) ✅ |
+| On-premise / local | `access_key` | `shared_key` / `sas_token` | `service_account` / `access_token` |
 
 For detailed setup steps, cross-account and Kubernetes scenarios, see [AUTHENTICATION.md](docs/guides/authentication.md) and [ENVIRONMENT_GUIDE.md](docs/guides/environment-guide.md).
 
@@ -212,6 +229,33 @@ go test ./internal/usecase/... -run TestPatternMatcher   # specific test
 go test -race ./...                                       # race detector
 go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out
 ```
+
+### Integration Tests
+
+Integration tests use the `//go:build integration` tag and require real service containers. There are two ways to run them:
+
+**Docker Compose (recommended for local dev)** — single command, tears down automatically:
+```bash
+make integration-test-local
+```
+Starts: SFTP (port 2222), FTPS/pure-ftpd (port 21, explicit TLS, self-signed cert), MinIO/S3 (port 9000). All env vars are set automatically.
+
+**Shell script (CI-style, individual docker run)** — matches the CI workflow:
+```bash
+./test-integration.sh            # all suites
+./test-integration.sh ftps       # FTPS only
+./test-integration.sh sftp s3    # specific suites
+./test-integration.sh -v --no-clean   # verbose, keep containers
+```
+
+Integration test files live alongside unit tests, gated by `-tags=integration`. Each file's helper skips automatically when its required env vars are absent, so `go test ./...` (no tag) always runs cleanly.
+
+| File | Suite | Skip guard |
+|---|---|---|
+| `local_integration_test.go` | LocalStorage | never skipped (uses t.TempDir) |
+| `sftp_integration_test.go` | SFTPStorage | `SFTP_HOST` |
+| `ftps_integration_test.go` | FTPSStorage | `FTPS_HOST` |
+| `s3_integration_test.go` | S3Storage | `S3_ENDPOINT` |
 
 ### Benchmarks
 

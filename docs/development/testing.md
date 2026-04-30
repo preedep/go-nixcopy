@@ -22,23 +22,30 @@ go test -v ./internal/usecase/...
 go test ./internal/usecase/... -run TestTransferUseCase_Transfer_Success
 ```
 
-### Integration tests (requires MinIO + SFTP)
+### Integration tests (requires Docker — SFTP + FTPS + MinIO)
+
+The recommended way is a single Make target that spins up all containers, runs the full suite, and tears everything down automatically:
 
 ```bash
-# Start dependencies
-docker run -d --name minio -p 9000:9000 \
-  -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
-  minio/minio server /data
+make integration-test-local
+```
 
-docker run -d --name sftp -p 2222:22 \
-  atmoz/sftp testuser:testpass:::upload
+To run only a specific suite, or to keep containers running after tests:
 
-# Create test bucket
-docker run --rm --network host \
-  -e MC_HOST_local=http://minioadmin:minioadmin@localhost:9000 \
-  minio/mc mb local/test-bucket
+```bash
+./test-integration.sh ftps            # FTPS only
+./test-integration.sh sftp s3         # SFTP + S3/MinIO
+./test-integration.sh -v --no-clean   # verbose, keep containers
+```
 
-# Run
+To run the Go test command directly against already-running containers:
+
+```bash
+S3_ENDPOINT=http://localhost:9000 S3_ACCESS_KEY=minioadmin S3_SECRET_KEY=minioadmin \
+S3_BUCKET=test-bucket S3_REGION=us-east-1 \
+SFTP_HOST=localhost SFTP_PORT=2222 SFTP_USERNAME=testuser SFTP_PASSWORD=testpass \
+FTPS_HOST=localhost FTPS_PORT=21 FTPS_USERNAME=testuser FTPS_PASSWORD=testpass \
+FTPS_TLS_MODE=explicit FTPS_SKIP_VERIFY=true \
 go test -tags=integration -race -count=1 -v ./internal/infrastructure/storage/...
 ```
 
@@ -71,11 +78,14 @@ internal/
 │   ├── blob_auth_test.go            — BlobStorage.Connect auth error paths
 │   ├── blob_multipart_test.go       — blobBlockSizeFor: 5 size scenarios
 │   ├── blob_nil_client_test.go      — nil-client guards: List/Read/Stat/Write/Delete; Disconnect/CreateDirectory no-ops
-│   ├── factory_test.go              — NewStorageFromSourceConfig + NewStorageFromDestConfig: all 5 backends,
+│   ├── factory_test.go              — NewStorageFromSourceConfig + NewStorageFromDestConfig: all 6 backends,
 │                                      nil-config errors, unknown type errors
 │   ├── ftps_ext_test.go             — FTPS nil-client guards: List/Read/Stat/Delete/Disconnect/Write
+│   ├── ftps_integration_test.go     — FTPS WriteAndRead/Stat/List/Delete/CreateDirectory (integration tag, requires FTPS_HOST)
 │   ├── ftps_nil_client_test.go      — FTPS nil-client guards: List/Read/Stat/Delete/Disconnect/Write
 │   ├── ftps_test.go                 — ftpMkdirAll: nested paths, single component, errors ignored, deep path
+│   ├── gcs_auth_test.go             — GCSStorage.Connect: all auth types, missing credentials, unknown type, endpoint option
+│   ├── gcs_nil_client_test.go       — GCS nil-client guards: List/Read/Stat/Write/Delete; Disconnect/CreateDirectory no-ops
 │   ├── local_integration_test.go    — Local storage read/write/list (integration tag)
 │   ├── local_unit_test.go           — LocalStorage: Connect, Disconnect, List, Read, Write, Delete, Stat,
 │                                      CreateDirectory, ReadFrom (with offset), AppendWrite — no external deps
@@ -83,7 +93,8 @@ internal/
 │   ├── s3_integration_test.go       — S3 read/write/list against MinIO (integration tag)
 │   ├── s3_multipart_test.go         — s3PartSizeFor: 5 size scenarios
 │   ├── s3_nil_client_test.go        — nil-client guards: List/Read/Stat/Write/Delete; Disconnect/CreateDirectory no-ops
-│   ├── sftp_integration_test.go     — SFTP read/write/list (integration tag)
+│   ├── sftp_auth_test.go            — SFTPStorage.Connect auth error paths (no auth, password, private key, passphrase)
+│   ├── sftp_integration_test.go     — SFTP WriteAndRead/List/Delete/ReadFrom/AppendWrite/Resume (integration tag)
 │   └── sftp_nil_client_test.go      — SFTP nil-client guards: List/Read/Stat/Write/Delete/CreateDirectory,
 │                                      ReadFrom/AppendWrite (Resumer), Disconnect no-op
 ├── interfaces/cli/
@@ -222,4 +233,4 @@ LoadFromEnv(cfg)
 | `internal/interfaces/cli` | ~58% | Flag wiring, validateConfig, TLS mode; `runTransfer`/`runList` require real storage |
 | `internal/infrastructure/storage` | ~49% | Local fully unit-tested; FTPS/Blob/S3/SFTP nil-client guards + auth paths; happy paths need integration tag |
 
-Storage coverage in unit mode reflects the nil-client guard pattern — every backend's error paths are covered without credentials. Happy paths (List, Read, Write against real endpoints) are covered by integration tests (`-tags=integration`) against MinIO and SFTP containers.
+Storage coverage in unit mode reflects the nil-client guard pattern — every backend's error paths are covered without credentials. Happy paths (List, Read, Write against real endpoints) are covered by integration tests (`-tags=integration`) against MinIO, SFTP, and FTPS containers (`make integration-test-local`).

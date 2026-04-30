@@ -105,6 +105,32 @@ func applyCliFlags(cfg *config.Config) {
 		if cfg.Source.BlobStorage.AuthType == "" {
 			cfg.Source.BlobStorage.AuthType = config.BlobAuthSharedKey
 		}
+
+	case config.StorageTypeGCS:
+		if cfg.Source.GCS == nil {
+			cfg.Source.GCS = &config.GCSConfig{}
+		}
+		if sourceGCSProject != "" {
+			cfg.Source.GCS.ProjectID = sourceGCSProject
+		}
+		if sourceBucket != "" {
+			cfg.Source.GCS.Bucket = sourceBucket
+		}
+		if sourceAuthType != "" {
+			cfg.Source.GCS.AuthType = config.GCSAuthType(sourceAuthType)
+		}
+		if sourceCredentialsFile != "" {
+			cfg.Source.GCS.CredentialsFile = sourceCredentialsFile
+		}
+		if sourceImpersonateSA != "" {
+			cfg.Source.GCS.ImpersonateServiceAccount = sourceImpersonateSA
+		}
+		if sourceAccessToken != "" {
+			cfg.Source.GCS.AccessToken = sourceAccessToken
+		}
+		if cfg.Source.GCS.AuthType == "" {
+			cfg.Source.GCS.AuthType = config.GCSAuthApplicationDefault
+		}
 	}
 
 	// Apply destination flags
@@ -203,6 +229,32 @@ func applyCliFlags(cfg *config.Config) {
 		}
 		if cfg.Destination.BlobStorage.AuthType == "" {
 			cfg.Destination.BlobStorage.AuthType = config.BlobAuthSharedKey
+		}
+
+	case config.StorageTypeGCS:
+		if cfg.Destination.GCS == nil {
+			cfg.Destination.GCS = &config.GCSConfig{}
+		}
+		if destGCSProject != "" {
+			cfg.Destination.GCS.ProjectID = destGCSProject
+		}
+		if destBucket != "" {
+			cfg.Destination.GCS.Bucket = destBucket
+		}
+		if destAuthType != "" {
+			cfg.Destination.GCS.AuthType = config.GCSAuthType(destAuthType)
+		}
+		if destCredentialsFile != "" {
+			cfg.Destination.GCS.CredentialsFile = destCredentialsFile
+		}
+		if destImpersonateSA != "" {
+			cfg.Destination.GCS.ImpersonateServiceAccount = destImpersonateSA
+		}
+		if destAccessToken != "" {
+			cfg.Destination.GCS.AccessToken = destAccessToken
+		}
+		if cfg.Destination.GCS.AuthType == "" {
+			cfg.Destination.GCS.AuthType = config.GCSAuthApplicationDefault
 		}
 	}
 
@@ -303,6 +355,14 @@ func validateConfig(cfg *config.Config) error {
 		if cfg.Source.BlobStorage.ContainerName == "" {
 			return fmt.Errorf("source Blob Storage container name is required")
 		}
+
+	case config.StorageTypeGCS:
+		if cfg.Source.GCS == nil {
+			return fmt.Errorf("GCS source configuration is required")
+		}
+		if cfg.Source.GCS.Bucket == "" {
+			return fmt.Errorf("source GCS bucket is required")
+		}
 	}
 
 	// Validate destination
@@ -353,6 +413,14 @@ func validateConfig(cfg *config.Config) error {
 		}
 		if cfg.Destination.BlobStorage.ContainerName == "" {
 			return fmt.Errorf("destination Blob Storage container name is required")
+		}
+
+	case config.StorageTypeGCS:
+		if cfg.Destination.GCS == nil {
+			return fmt.Errorf("GCS destination configuration is required")
+		}
+		if cfg.Destination.GCS.Bucket == "" {
+			return fmt.Errorf("destination GCS bucket is required")
 		}
 	}
 

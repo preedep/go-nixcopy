@@ -5,23 +5,6 @@ import (
 	"time"
 )
 
-type TransferType string
-
-const (
-	TransferTypeSFTPToFTPS        TransferType = "sftp_to_ftps"
-	TransferTypeSFTPToBlobStorage TransferType = "sftp_to_blob"
-	TransferTypeSFTPToS3          TransferType = "sftp_to_s3"
-	TransferTypeFTPSToSFTP        TransferType = "ftps_to_sftp"
-	TransferTypeFTPSToBlobStorage TransferType = "ftps_to_blob"
-	TransferTypeFTPSToS3          TransferType = "ftps_to_s3"
-	TransferTypeBlobStorageToSFTP TransferType = "blob_to_sftp"
-	TransferTypeBlobStorageToFTPS TransferType = "blob_to_ftps"
-	TransferTypeBlobStorageToS3   TransferType = "blob_to_s3"
-	TransferTypeS3ToSFTP          TransferType = "s3_to_sftp"
-	TransferTypeS3ToFTPS          TransferType = "s3_to_ftps"
-	TransferTypeS3ToBlobStorage   TransferType = "s3_to_blob"
-)
-
 type TransferStatus string
 
 const (

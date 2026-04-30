@@ -1,5 +1,5 @@
 # Build stage — always runs on the host machine's native arch for fast compilation
-FROM --platform=$BUILDPLATFORM golang:1.24-alpine3.21 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine3.21 AS builder
 
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64

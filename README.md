@@ -2,7 +2,7 @@
 
 🇬🇧 English | [🇹🇭 ภาษาไทย](README.th.md)
 
-Fast universal file-transfer CLI — move data between SFTP, FTPS, Azure Blob, AWS S3, and local disk with a single command.
+Fast universal file-transfer CLI — move data between SFTP, FTPS, Azure Blob, AWS S3, Google Cloud Storage, and local disk with a single command.
 
 [![CI](https://github.com/preedep/go-nixcopy/actions/workflows/ci.yml/badge.svg)](https://github.com/preedep/go-nixcopy/actions/workflows/ci.yml)
 [![Docker Hub](https://img.shields.io/docker/v/nickmsft/gonixcopy?label=Docker%20Hub)](https://hub.docker.com/r/nickmsft/gonixcopy)
@@ -33,6 +33,7 @@ go-nixcopy is a small, fast Go CLI for transferring files between storage system
 | FTPS | ✅ | ✅ |
 | Azure Blob Storage | ✅ | ✅ |
 | AWS S3 / MinIO | ✅ | ✅ |
+| Google Cloud Storage | ✅ | ✅ |
 
 **Install:**
 
@@ -95,7 +96,7 @@ go-nixcopy/
 │   ├── infrastructure/
 │   │   ├── config/            # YAML/JSON loader with ${ENV_VAR} expansion
 │   │   ├── logger/            # standard-app-log JSON emitter
-│   │   └── storage/           # local, sftp, ftps, blob, s3, factory
+│   │   └── storage/           # local, sftp, ftps, blob, s3, gcs, factory
 │   └── interfaces/cli/        # Cobra subcommands: transfer, list
 └── examples/                  # Sample config files per backend pair
 ```
@@ -378,7 +379,7 @@ The JSON summary goes to **stdout** — parse it with Loki / CloudWatch Insights
 ## Roadmap
 
 ### Done
-- [x] Local, SFTP, FTPS, Azure Blob, AWS S3 / MinIO support
+- [x] Local, SFTP, FTPS, Azure Blob, AWS S3 / MinIO, Google Cloud Storage support
 - [x] Parallel transfer & wildcard patterns (`*.pdf`, `**/*.log`)
 - [x] SHA-256 checksum verification
 - [x] Resume interrupted transfers (Local & SFTP)
@@ -388,10 +389,9 @@ The JSON summary goes to **stdout** — parse it with Loki / CloudWatch Insights
 - [x] Structured JSON logging (standard-app-log v1.0)
 - [x] Distroless Docker image, multi-arch (amd64 + arm64), config-free KPO mode
 - [x] S3 multipart upload (up to ~5 TiB) & Azure Blob parallel block upload (up to ~190 TiB)
-- [x] GitHub Actions CI with integration tests (MinIO + SFTP)
+- [x] GitHub Actions CI with integration tests (MinIO + SFTP + FTPS)
 
 ### Planned
-- [ ] Google Cloud Storage support
 - [ ] Web UI for transfer management
 - [ ] Scheduled transfers
 - [ ] Email / webhook notifications

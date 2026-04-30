@@ -1,4 +1,4 @@
-.PHONY: build clean test install run help deps fmt lint docker-build docker-buildx docker-run
+.PHONY: build clean test install run help deps fmt lint docker-build docker-buildx docker-run integration-test-local integration-test-down
 
 BINARY_NAME=nixcopy
 BINARY_PATH=./bin/$(BINARY_NAME)
@@ -140,6 +140,27 @@ docker-run: ## Run Docker container using NIXCOPY_* env vars (no config file nee
 
 docker-run-config: ## Run Docker container mounting a local config.yaml
 	docker run --rm -v $(PWD)/config.yaml:/config.yaml $(IMAGE_NAME):latest transfer --config /config.yaml
+
+COMPOSE_INT = docker-compose.integration.yml
+
+integration-test-local: ## Spin up SFTP + FTPS + MinIO via Compose and run all integration tests locally
+	docker compose -f $(COMPOSE_INT) up -d --wait --timeout 120
+	docker run --rm \
+		--network nixcopy-integration_default \
+		-e MC_HOST_local=http://minioadmin:minioadmin@minio:9000 \
+		minio/mc mb --ignore-existing local/test-bucket
+	@S3_ENDPOINT=http://localhost:9000 S3_ACCESS_KEY=minioadmin S3_SECRET_KEY=minioadmin \
+	 S3_BUCKET=test-bucket S3_REGION=us-east-1 \
+	 SFTP_HOST=localhost SFTP_PORT=2222 SFTP_USERNAME=testuser SFTP_PASSWORD=testpass \
+	 FTPS_HOST=localhost FTPS_PORT=21 FTPS_USERNAME=testuser FTPS_PASSWORD=testpass \
+	 FTPS_TLS_MODE=explicit FTPS_SKIP_VERIFY=true \
+	 go test -tags=integration -race -count=1 -v ./internal/infrastructure/storage/...; \
+	 EXIT=$$?; \
+	 docker compose -f $(COMPOSE_INT) down -v; \
+	 exit $$EXIT
+
+integration-test-down: ## Stop and remove integration test containers and volumes
+	docker compose -f $(COMPOSE_INT) down -v
 
 example-sftp-s3: ## รันตัวอย่าง SFTP to S3
 	$(BINARY_PATH) transfer -c examples/sftp-to-s3.yaml -s /remote/file.txt -d backup/file.txt

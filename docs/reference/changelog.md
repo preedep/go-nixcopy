@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Local Integration Test Environment
+
+- **`docker-compose.integration.yml`** — single-command local integration test environment: SFTP (`atmoz/sftp`, port 2222), FTPS (`Dockerfile.ftps-test`, port 21, explicit TLS, self-signed cert), MinIO/S3 (`minio/minio`, port 9000). All services have Docker healthchecks; `docker compose up --wait` blocks until all are healthy.
+- **`Dockerfile.ftps-test`** — native multi-arch FTPS test image built from `debian:bookworm-slim`. Replaces `stilliard/pure-ftpd` (x86_64-only, non-functional under Apple Silicon Rosetta). Installs pure-ftpd from the Debian ARM64 repo, generates a self-signed TLS cert at build time, and adds `/usr/sbin/nologin` to `/etc/shells` so PAM accepts the test user. Requires `privileged: true` in compose so pure-ftpd can call `setuid`/`setgid` after binding.
+- **`make integration-test-local`** — spins up all containers, creates the MinIO test bucket, runs `-tags=integration -race` tests against `./internal/infrastructure/storage/...`, then tears everything down, preserving the Go test exit code.
+- **`make integration-test-down`** — tears down containers and volumes without running tests.
+- **`./test-integration.sh`** — shell script alternative for CI-style individual `docker run`; supports suite filters (`local`, `s3`, `sftp`, `ftps`), `-v`, and `--no-clean`.
+- **`internal/infrastructure/storage/ftps_integration_test.go`** — 5 integration tests under `//go:build integration`: `WriteAndRead`, `Stat`, `List`, `Delete`, `CreateDirectory`. Skips automatically when `FTPS_HOST` is unset.
+
+### Added — Google Cloud Storage (GCS)
+
+- **New GCS backend** (`internal/infrastructure/storage/gcs.go`) — implements `repository.Storage` for Google Cloud Storage buckets. Supports all GCP auth patterns:
+  - `application_default` (default / `""`) — Application Default Credentials; covers GCE VM service accounts, GKE Workload Identity, Cloud Run, App Engine, and local `gcloud auth application-default login` automatically. No credentials config required.
+  - `service_account` — long-lived JSON key file (`credentials_file`) or inline JSON (`credentials_json`); use for non-GCP environments (on-premise, AWS, Azure).
+  - `impersonate` — service account impersonation via `google.golang.org/api/impersonate.CredentialsTokenSource`; equivalent to AWS `assume_role`. Set `impersonate_service_account` (and optional `delegates` chain).
+  - `access_token` — static short-lived OAuth2 token via `golang.org/x/oauth2.StaticTokenSource`; useful in CI/CD pipelines.
+- **`GCSConfig` struct** (`internal/infrastructure/config/config.go`) — `project_id`, `bucket`, `auth_type`, `credentials_file`, `credentials_json`, `endpoint`, `impersonate_service_account`, `delegates`, `access_token`.
+- **`StorageTypeGCS = "gcs"`** constant added; `GCS *GCSConfig` added to `SourceConfig` and `DestinationConfig`.
+- **`GCSAuthType` constants** — `application_default`, `service_account`, `impersonate`, `access_token`.
+- **GCS env vars** (`internal/infrastructure/config/envloader.go`):
+  - Source: `NIXCOPY_SOURCE_GCS_PROJECT`, `NIXCOPY_SOURCE_BUCKET`, `NIXCOPY_SOURCE_AUTH_TYPE`, `NIXCOPY_SOURCE_CREDENTIALS_FILE`, `NIXCOPY_SOURCE_CREDENTIALS_JSON`, `NIXCOPY_SOURCE_IMPERSONATE_SA`, `NIXCOPY_SOURCE_ACCESS_TOKEN`, `NIXCOPY_SOURCE_ENDPOINT`
+  - Dest: `NIXCOPY_DEST_GCS_PROJECT`, `NIXCOPY_DEST_BUCKET`, `NIXCOPY_DEST_AUTH_TYPE`, `NIXCOPY_DEST_CREDENTIALS_FILE`, `NIXCOPY_DEST_CREDENTIALS_JSON`, `NIXCOPY_DEST_IMPERSONATE_SA`, `NIXCOPY_DEST_ACCESS_TOKEN`, `NIXCOPY_DEST_ENDPOINT`
+- **New CLI flags** (`internal/interfaces/cli/transfer.go`) — `--source/dest-gcs-project`, `--source/dest-credentials-file`, `--source/dest-impersonate-service-account`, `--source/dest-access-token`.
+- **Factory registration** (`internal/infrastructure/storage/factory.go`) — `StorageTypeGCS` dispatches to `NewGCSStorage`.
+- **Example config** (`examples/local-to-gcs.yaml`) — local → GCS transfer with commented auth variants.
+- **Dependency** — `cloud.google.com/go/storage v1.62.1` + `google.golang.org/api/impersonate` added to `go.mod`.
+- **Unit tests**:
+  - `internal/infrastructure/storage/gcs_nil_client_test.go` — nil-client guards for all 7 operations.
+  - `internal/infrastructure/storage/gcs_auth_test.go` — 11 tests: missing credentials, missing impersonate SA, missing access token, invalid credentials file path, invalid credentials JSON, unknown auth type, `workload_identity` alias, endpoint option, Disconnect after Connect.
+  - `internal/infrastructure/config/config_test.go` — `TestGCSAuthType` (4 constants), `TestGCSConfig` (all struct fields).
+  - `internal/infrastructure/config/envloader_test.go` — `TestLoadFromEnv_SourceGCS`, `TestLoadFromEnv_DestGCS`.
+  - `internal/infrastructure/storage/factory_test.go` — GCS source/dest success and nil-config error cases.
+
 ### Added — FTPS TLS Mode (Enterprise)
 
 - **`--source-tls-mode` / `--dest-tls-mode` CLI flags** (`internal/interfaces/cli/transfer.go`) — accept `explicit` (STARTTLS on port 21) or `implicit` (TLS-first on port 990). Empty string leaves any value already loaded from the config file or env var unchanged.
