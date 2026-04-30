@@ -43,6 +43,7 @@ func TestStorageType(t *testing.T) {
 		{"FTPS", StorageTypeFTPS, "ftps"},
 		{"Blob", StorageTypeBlobStorage, "blob"},
 		{"S3", StorageTypeS3, "s3"},
+		{"GCS", StorageTypeGCS, "gcs"},
 	}
 
 	for _, tt := range tests {
@@ -140,6 +141,63 @@ func TestS3Config(t *testing.T) {
 
 	if cfg.AuthType != S3AuthAccessKey {
 		t.Errorf("AuthType = %v, want %v", cfg.AuthType, S3AuthAccessKey)
+	}
+}
+
+// Gap 8: GCSAuthType constants.
+func TestGCSAuthType(t *testing.T) {
+	tests := []struct {
+		name string
+		at   GCSAuthType
+		want string
+	}{
+		{"ApplicationDefault", GCSAuthApplicationDefault, "application_default"},
+		{"ServiceAccount", GCSAuthServiceAccount, "service_account"},
+		{"Impersonate", GCSAuthImpersonate, "impersonate"},
+		{"AccessToken", GCSAuthAccessToken, "access_token"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if string(tt.at) != tt.want {
+				t.Errorf("GCSAuthType = %v, want %v", tt.at, tt.want)
+			}
+		})
+	}
+}
+
+// Gap 9: GCSConfig struct fields.
+func TestGCSConfig(t *testing.T) {
+	cfg := GCSConfig{
+		ProjectID:                 "my-project",
+		Bucket:                    "my-bucket",
+		AuthType:                  GCSAuthServiceAccount,
+		CredentialsFile:           "/path/to/sa.json",
+		ImpersonateServiceAccount: "sa@my-project.iam.gserviceaccount.com",
+		Delegates:                 []string{"mid@my-project.iam.gserviceaccount.com"},
+		AccessToken:               "ya29.token",
+	}
+
+	if cfg.ProjectID != "my-project" {
+		t.Errorf("ProjectID = %q, want my-project", cfg.ProjectID)
+	}
+	if cfg.Bucket != "my-bucket" {
+		t.Errorf("Bucket = %q, want my-bucket", cfg.Bucket)
+	}
+	if cfg.AuthType != GCSAuthServiceAccount {
+		t.Errorf("AuthType = %q, want %q", cfg.AuthType, GCSAuthServiceAccount)
+	}
+	if cfg.CredentialsFile != "/path/to/sa.json" {
+		t.Errorf("CredentialsFile = %q, want /path/to/sa.json", cfg.CredentialsFile)
+	}
+	if cfg.ImpersonateServiceAccount != "sa@my-project.iam.gserviceaccount.com" {
+		t.Errorf("ImpersonateServiceAccount = %q", cfg.ImpersonateServiceAccount)
+	}
+	if len(cfg.Delegates) != 1 || cfg.Delegates[0] != "mid@my-project.iam.gserviceaccount.com" {
+		t.Errorf("Delegates = %v, want [mid@my-project.iam.gserviceaccount.com]", cfg.Delegates)
+	}
+	if cfg.AccessToken != "ya29.token" {
+		t.Errorf("AccessToken = %q, want ya29.token", cfg.AccessToken)
 	}
 }
 

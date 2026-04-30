@@ -1,0 +1,32 @@
+# Example: Transfer from Local File System to Google Cloud Storage
+#
+# Use Case: Backup files from local disk to GCS
+# Auth options:
+#   application_default  — ADC (GKE workload identity, GCE SA, local `gcloud auth`)
+#   service_account      — explicit JSON key file or inline JSON
+#   workload_identity    — GKE Workload Identity (uses ADC internally)
+
+source:
+  type: local
+  local:
+    base_path: /data/exports
+
+destination:
+  type: gcs
+  gcs:
+    project_id: my-gcp-project
+    bucket: my-gcs-bucket
+    # auth_type: application_default  # default when omitted
+    # credentials_file: /path/to/service-account.json  # for service_account auth
+
+transfer:
+  buffer_size: 33554432      # 32 MB
+  concurrent_files: 4
+  retry_attempts: 3
+  retry_delay: 5s
+  timeout: 30m
+
+logging:
+  level: info
+  format: json
+  output_path: stdout

@@ -2,7 +2,7 @@
 
 🇬🇧 English | [🇹🇭 ภาษาไทย](README.th.md)
 
-Fast universal file-transfer CLI — move data between SFTP, FTPS, Azure Blob, AWS S3, and local disk with a single command.
+Fast universal file-transfer CLI — move data between SFTP, FTPS, Azure Blob, AWS S3, Google Cloud Storage, and local disk with a single command.
 
 [![CI](https://github.com/preedep/go-nixcopy/actions/workflows/ci.yml/badge.svg)](https://github.com/preedep/go-nixcopy/actions/workflows/ci.yml)
 [![Docker Hub](https://img.shields.io/docker/v/nickmsft/gonixcopy?label=Docker%20Hub)](https://hub.docker.com/r/nickmsft/gonixcopy)
@@ -33,6 +33,7 @@ go-nixcopy is a small, fast Go CLI for transferring files between storage system
 | FTPS | ✅ | ✅ |
 | Azure Blob Storage | ✅ | ✅ |
 | AWS S3 / MinIO | ✅ | ✅ |
+| Google Cloud Storage | ✅ | ✅ |
 
 **Install:**
 
@@ -378,7 +379,7 @@ The JSON summary goes to **stdout** — parse it with Loki / CloudWatch Insights
 ## Roadmap
 
 ### Done
-- [x] Local, SFTP, FTPS, Azure Blob, AWS S3 / MinIO support
+- [x] Local, SFTP, FTPS, Azure Blob, AWS S3 / MinIO, Google Cloud Storage support
 - [x] Parallel transfer & wildcard patterns (`*.pdf`, `**/*.log`)
 - [x] SHA-256 checksum verification
 - [x] Resume interrupted transfers (Local & SFTP)
@@ -391,7 +392,6 @@ The JSON summary goes to **stdout** — parse it with Loki / CloudWatch Insights
 - [x] GitHub Actions CI with integration tests (MinIO + SFTP)
 
 ### Planned
-- [ ] Google Cloud Storage support
 - [ ] Web UI for transfer management
 - [ ] Scheduled transfers
 - [ ] Email / webhook notifications

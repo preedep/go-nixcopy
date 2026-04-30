@@ -8,14 +8,18 @@
 
 **IAM Role / Instance Profile / Web Identity (AWS)**
 - ✅ ใช้ได้เฉพาะบน AWS infrastructure (EC2, ECS, Lambda, EKS)
-- ❌ ใช้ไม่ได้บน Azure VM, AKS, หรือ on-premise
+- ❌ ใช้ไม่ได้บน Azure VM, AKS, GCE, GKE, หรือ on-premise
 
 **Managed Identity / Workload Identity (Azure)**
 - ✅ ใช้ได้เฉพาะบน Azure infrastructure (VM, App Service, AKS)
-- ❌ ใช้ไม่ได้บน AWS EC2, EKS, หรือ on-premise
+- ❌ ใช้ไม่ได้บน AWS EC2, EKS, GCE, GKE, หรือ on-premise
 
-**Access Key / Shared Key / SAS Token**
-- ✅ ใช้ได้ทุกที่ (แต่ไม่ secure เท่า managed identity/IAM role)
+**Application Default Credentials / Workload Identity (GCP)**
+- ✅ ใช้ได้เฉพาะบน GCP infrastructure (GCE VM, GKE, Cloud Run, App Engine)
+- ❌ ใช้ไม่ได้บน AWS EC2, Azure VM, หรือ on-premise (ใช้ service_account แทน)
+
+**Access Key / Shared Key / SAS Token / Service Account Key**
+- ✅ ใช้ได้ทุกที่ (แต่ไม่ secure เท่า managed identity/IAM role/ADC)
 
 ---
 
@@ -154,7 +158,40 @@ destination:
 
 ---
 
-### 5️⃣ รันบน On-Premise / Local Server
+### 5️⃣ รันบน GCE VM / GKE
+
+**GCS Authentication:**
+```yaml
+destination:
+  type: gcs
+  gcs:
+    project_id: my-gcp-project
+    bucket: my-bucket
+    auth_type: application_default   # ✅ แนะนำ — ADC จัดการ GCE SA / GKE Workload Identity อัตโนมัติ
+```
+
+**S3 Authentication (cross-cloud):**
+```yaml
+source:
+  type: s3
+  s3:
+    region: ap-southeast-1
+    bucket: aws-source-bucket
+    auth_type: access_key  # ✅ ต้องใช้ credentials เมื่อรันบน GCP
+    access_key_id: ${AWS_ACCESS_KEY_ID}
+    secret_access_key: ${AWS_SECRET_ACCESS_KEY}
+```
+
+**Prerequisites (GKE Workload Identity):**
+- GKE cluster with Workload Identity enabled
+- Kubernetes ServiceAccount annotated: `iam.gke.io/gcp-service-account: sa@project.iam.gserviceaccount.com`
+- GCP SA มี `roles/storage.objectAdmin` บน bucket
+
+**ตัวอย่าง:** `examples/local-to-gcs.yaml`
+
+---
+
+### 6️⃣ รันบน On-Premise / Local Server
 
 **ทุก Storage ต้องใช้ Credentials:**
 
@@ -191,13 +228,15 @@ destination:
 
 ## 🔐 ตารางสรุป Authentication Methods
 
-| สภาพแวดล้อม | S3 Auth | Azure Blob Auth |
-|-------------|---------|-----------------|
-| **AWS EC2/ECS/Lambda** | ✅ `iam_role`<br>✅ `instance_profile`<br>✅ `access_key` | ✅ `shared_key`<br>✅ `sas_token`<br>✅ `service_principal`<br>❌ `managed_identity` |
-| **Azure VM/App Service** | ✅ `access_key`<br>❌ `iam_role` | ✅ `managed_identity`<br>✅ `shared_key`<br>✅ `sas_token`<br>✅ `service_principal` |
-| **Amazon EKS** | ✅ `web_identity` (IRSA)<br>✅ `access_key`<br>❌ `iam_role` | ✅ `service_principal`<br>✅ `shared_key`<br>✅ `sas_token`<br>❌ `managed_identity` |
-| **Azure AKS** | ✅ `access_key`<br>❌ `iam_role`<br>❌ `web_identity` | ✅ `managed_identity` (Workload Identity)<br>✅ `service_principal`<br>✅ `shared_key` |
-| **On-Premise/Local** | ✅ `access_key`<br>❌ `iam_role`<br>❌ `web_identity` | ✅ `shared_key`<br>✅ `sas_token`<br>✅ `service_principal`<br>❌ `managed_identity` |
+| สภาพแวดล้อม | S3 Auth | Azure Blob Auth | GCS Auth |
+|-------------|---------|-----------------|----------|
+| **AWS EC2/ECS/Lambda** | ✅ `iam_role`<br>✅ `instance_profile`<br>✅ `access_key` | ✅ `shared_key`<br>✅ `sas_token`<br>✅ `service_principal`<br>❌ `managed_identity` | ✅ `service_account`<br>✅ `access_token`<br>❌ `application_default` |
+| **Azure VM/App Service** | ✅ `access_key`<br>❌ `iam_role` | ✅ `managed_identity`<br>✅ `shared_key`<br>✅ `sas_token`<br>✅ `service_principal` | ✅ `service_account`<br>✅ `access_token`<br>❌ `application_default` |
+| **GCE VM** | ✅ `access_key`<br>❌ `iam_role` | ✅ `shared_key`<br>✅ `sas_token`<br>✅ `service_principal`<br>❌ `managed_identity` | ✅ `application_default` ⭐<br>✅ `service_account`<br>✅ `impersonate` |
+| **Amazon EKS** | ✅ `web_identity` (IRSA)<br>✅ `access_key`<br>❌ `iam_role` | ✅ `service_principal`<br>✅ `shared_key`<br>✅ `sas_token`<br>❌ `managed_identity` | ✅ `service_account`<br>✅ `access_token`<br>❌ `application_default` |
+| **Azure AKS** | ✅ `access_key`<br>❌ `iam_role`<br>❌ `web_identity` | ✅ `managed_identity` (Workload Identity)<br>✅ `service_principal`<br>✅ `shared_key` | ✅ `service_account`<br>✅ `access_token`<br>❌ `application_default` |
+| **GKE** | ✅ `access_key`<br>❌ `iam_role` | ✅ `shared_key`<br>✅ `sas_token`<br>✅ `service_principal`<br>❌ `managed_identity` | ✅ `application_default` ⭐ (Workload Identity)<br>✅ `impersonate`<br>✅ `service_account` |
+| **On-Premise/Local** | ✅ `access_key`<br>❌ `iam_role`<br>❌ `web_identity` | ✅ `shared_key`<br>✅ `sas_token`<br>✅ `service_principal`<br>❌ `managed_identity` | ✅ `service_account`<br>✅ `access_token`<br>✅ `application_default` (with gcloud) |
 
 ---
 

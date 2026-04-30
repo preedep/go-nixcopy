@@ -2,7 +2,7 @@
 
 # การตั้งค่า Source (แหล่งที่มา)
 source:
-  # ประเภทของ storage: sftp, ftps, blob, s3
+  # ประเภทของ storage: sftp, ftps, blob, s3, gcs
   type: sftp
   
   # การตั้งค่า SFTP (ใช้เมื่อ type: sftp)
@@ -43,10 +43,26 @@ source:
   #   endpoint: ""  # ใช้สำหรับ S3-compatible storage เช่น MinIO
   #   use_path_style: false
 
+  # การตั้งค่า Google Cloud Storage (ใช้เมื่อ type: gcs)
+  # gcs:
+  #   project_id: my-gcp-project
+  #   bucket: my-bucket
+  #   auth_type: application_default  # application_default | service_account | impersonate | access_token
+  #   # service_account: ระบุ credentials_file หรือ credentials_json
+  #   # credentials_file: /path/to/service-account.json
+  #   # credentials_json: '{"type":"service_account","project_id":"..."}'
+  #   # impersonate: ระบุ impersonate_service_account (และ delegates ถ้ามี)
+  #   # impersonate_service_account: worker@my-project.iam.gserviceaccount.com
+  #   # delegates: []
+  #   # access_token: ระบุ access_token สำหรับ short-lived token
+  #   # access_token: ya29.your-short-lived-token
+  #   # endpoint: ""  # ใช้สำหรับ GCS-compatible storage หรือ emulator
+
 # การตั้งค่า Destination (ปลายทาง)
 destination:
+  # ประเภทของ storage: sftp, ftps, blob, s3, gcs
   type: s3
-  
+
   s3:
     region: ap-southeast-1
     bucket: my-destination-bucket
@@ -54,6 +70,14 @@ destination:
     secret_access_key: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
     endpoint: ""
     use_path_style: false
+
+  # การตั้งค่า Google Cloud Storage (ใช้เมื่อ type: gcs)
+  # gcs:
+  #   project_id: my-gcp-project
+  #   bucket: my-destination-bucket
+  #   auth_type: application_default  # application_default | service_account | impersonate | access_token
+  #   # credentials_file: /path/to/service-account.json
+  #   # impersonate_service_account: worker@my-project.iam.gserviceaccount.com
 
 # การตั้งค่าการถ่ายโอนไฟล์
 transfer:

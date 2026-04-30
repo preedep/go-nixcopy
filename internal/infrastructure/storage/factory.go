@@ -34,6 +34,11 @@ func NewStorageFromSourceConfig(cfg *config.SourceConfig) (repository.Storage, e
 			return nil, fmt.Errorf("S3 configuration is required")
 		}
 		return NewS3Storage(cfg.S3), nil
+	case config.StorageTypeGCS:
+		if cfg.GCS == nil {
+			return nil, fmt.Errorf("GCS configuration is required")
+		}
+		return NewGCSStorage(cfg.GCS), nil
 	default:
 		return nil, fmt.Errorf("unsupported source storage type: %s", cfg.Type)
 	}
@@ -66,6 +71,11 @@ func NewStorageFromDestConfig(cfg *config.DestinationConfig) (repository.Storage
 			return nil, fmt.Errorf("S3 configuration is required")
 		}
 		return NewS3Storage(cfg.S3), nil
+	case config.StorageTypeGCS:
+		if cfg.GCS == nil {
+			return nil, fmt.Errorf("GCS configuration is required")
+		}
+		return NewGCSStorage(cfg.GCS), nil
 	default:
 		return nil, fmt.Errorf("unsupported destination storage type: %s", cfg.Type)
 	}

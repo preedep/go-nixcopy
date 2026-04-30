@@ -19,6 +19,7 @@ const (
 	StorageTypeFTPS        StorageType = "ftps"
 	StorageTypeBlobStorage StorageType = "blob"
 	StorageTypeS3          StorageType = "s3"
+	StorageTypeGCS         StorageType = "gcs"
 )
 
 type SourceConfig struct {
@@ -28,6 +29,7 @@ type SourceConfig struct {
 	FTPS        *FTPSConfig  `yaml:"ftps,omitempty" json:"ftps,omitempty"`
 	BlobStorage *BlobConfig  `yaml:"blob,omitempty" json:"blob,omitempty"`
 	S3          *S3Config    `yaml:"s3,omitempty" json:"s3,omitempty"`
+	GCS         *GCSConfig   `yaml:"gcs,omitempty" json:"gcs,omitempty"`
 }
 
 type DestinationConfig struct {
@@ -37,6 +39,7 @@ type DestinationConfig struct {
 	FTPS        *FTPSConfig  `yaml:"ftps,omitempty" json:"ftps,omitempty"`
 	BlobStorage *BlobConfig  `yaml:"blob,omitempty" json:"blob,omitempty"`
 	S3          *S3Config    `yaml:"s3,omitempty" json:"s3,omitempty"`
+	GCS         *GCSConfig   `yaml:"gcs,omitempty" json:"gcs,omitempty"`
 }
 
 type LocalConfig struct {
@@ -119,6 +122,36 @@ type S3Config struct {
 	WebIdentityTokenFile string `yaml:"web_identity_token_file,omitempty" json:"web_identity_token_file,omitempty"`
 
 	Profile string `yaml:"profile,omitempty" json:"profile,omitempty"`
+}
+
+type GCSAuthType string
+
+const (
+	// GCSAuthApplicationDefault uses ADC: GCE SA, GKE Workload Identity, Cloud Run, local gcloud.
+	// Also accepts "workload_identity" as an alias — GKE Workload Identity flows through ADC.
+	GCSAuthApplicationDefault GCSAuthType = "application_default"
+	// GCSAuthServiceAccount uses an explicit JSON key file (credentials_file) or inline JSON (credentials_json).
+	GCSAuthServiceAccount GCSAuthType = "service_account"
+	// GCSAuthImpersonate calls GCP APIs as a different service account (equivalent to AWS assume_role).
+	GCSAuthImpersonate GCSAuthType = "impersonate"
+	// GCSAuthAccessToken uses a short-lived OAuth2 access token directly (useful in CI/CD pipelines).
+	GCSAuthAccessToken GCSAuthType = "access_token"
+)
+
+type GCSConfig struct {
+	ProjectID       string      `yaml:"project_id" json:"project_id"`
+	Bucket          string      `yaml:"bucket" json:"bucket"`
+	AuthType        GCSAuthType `yaml:"auth_type" json:"auth_type"`
+	CredentialsFile string      `yaml:"credentials_file,omitempty" json:"credentials_file,omitempty"`
+	CredentialsJSON string      `yaml:"credentials_json,omitempty" json:"credentials_json,omitempty"`
+	Endpoint        string      `yaml:"endpoint,omitempty" json:"endpoint,omitempty"`
+
+	// Impersonation fields (auth_type: impersonate)
+	ImpersonateServiceAccount string   `yaml:"impersonate_service_account,omitempty" json:"impersonate_service_account,omitempty"`
+	Delegates                 []string `yaml:"delegates,omitempty" json:"delegates,omitempty"`
+
+	// Direct token field (auth_type: access_token)
+	AccessToken string `yaml:"access_token,omitempty" json:"access_token,omitempty"`
 }
 
 type TransferConfig struct {

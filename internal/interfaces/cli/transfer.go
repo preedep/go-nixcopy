@@ -46,38 +46,46 @@ var (
 	destPath    string
 
 	// Source flags
-	sourceType        string
-	sourceHost        string
-	sourcePort        int
-	sourceUsername    string
-	sourcePassword    string
-	sourcePrivateKey  string
-	sourceRegion      string
-	sourceBucket      string
-	sourceAccessKey   string
-	sourceSecretKey   string
-	sourceAuthType    string
-	sourceAccountName string
-	sourceAccountKey  string
-	sourceContainer   string
-	sourceTLSMode     string
+	sourceType            string
+	sourceHost            string
+	sourcePort            int
+	sourceUsername        string
+	sourcePassword        string
+	sourcePrivateKey      string
+	sourceRegion          string
+	sourceBucket          string
+	sourceAccessKey       string
+	sourceSecretKey       string
+	sourceAuthType        string
+	sourceAccountName     string
+	sourceAccountKey      string
+	sourceContainer       string
+	sourceTLSMode         string
+	sourceGCSProject      string
+	sourceCredentialsFile string
+	sourceImpersonateSA   string
+	sourceAccessToken     string
 
 	// Destination flags
-	destType        string
-	destHost        string
-	destPort        int
-	destUsername    string
-	destPassword    string
-	destPrivateKey  string
-	destRegion      string
-	destBucket      string
-	destAccessKey   string
-	destSecretKey   string
-	destAuthType    string
-	destAccountName string
-	destAccountKey  string
-	destContainer   string
-	destTLSMode     string
+	destType            string
+	destHost            string
+	destPort            int
+	destUsername        string
+	destPassword        string
+	destPrivateKey      string
+	destRegion          string
+	destBucket          string
+	destAccessKey       string
+	destSecretKey       string
+	destAuthType        string
+	destAccountName     string
+	destAccountKey      string
+	destContainer       string
+	destTLSMode         string
+	destGCSProject      string
+	destCredentialsFile string
+	destImpersonateSA   string
+	destAccessToken     string
 
 	// Transfer flags
 	bufferSize      int
@@ -123,6 +131,10 @@ func init() {
 	transferCmd.Flags().StringVar(&sourceAccountKey, "source-account-key", "", "Source Azure account key (env: NIXCOPY_SOURCE_ACCOUNT_KEY)")
 	transferCmd.Flags().StringVar(&sourceContainer, "source-container", "", "Source Azure container (env: NIXCOPY_SOURCE_CONTAINER)")
 	transferCmd.Flags().StringVar(&sourceTLSMode, "source-tls-mode", "", "Source FTPS TLS mode: explicit (STARTTLS, port 21) or implicit (TLS-first, port 990) (env: NIXCOPY_SOURCE_TLS_MODE)")
+	transferCmd.Flags().StringVar(&sourceGCSProject, "source-gcs-project", "", "Source GCS project ID (env: NIXCOPY_SOURCE_GCS_PROJECT)")
+	transferCmd.Flags().StringVar(&sourceCredentialsFile, "source-credentials-file", "", "Source GCS service account JSON key file path (env: NIXCOPY_SOURCE_CREDENTIALS_FILE)")
+	transferCmd.Flags().StringVar(&sourceImpersonateSA, "source-impersonate-service-account", "", "Source GCS service account to impersonate (env: NIXCOPY_SOURCE_IMPERSONATE_SA)")
+	transferCmd.Flags().StringVar(&sourceAccessToken, "source-access-token", "", "Source GCS short-lived OAuth2 access token (env: NIXCOPY_SOURCE_ACCESS_TOKEN)")
 
 	// Destination storage flags
 	transferCmd.Flags().StringVar(&destType, "dest-type", "", "Destination storage type (sftp, ftps, blob, s3) (env: NIXCOPY_DEST_TYPE)")
@@ -140,6 +152,10 @@ func init() {
 	transferCmd.Flags().StringVar(&destAccountKey, "dest-account-key", "", "Destination Azure account key (env: NIXCOPY_DEST_ACCOUNT_KEY)")
 	transferCmd.Flags().StringVar(&destContainer, "dest-container", "", "Destination Azure container (env: NIXCOPY_DEST_CONTAINER)")
 	transferCmd.Flags().StringVar(&destTLSMode, "dest-tls-mode", "", "Destination FTPS TLS mode: explicit (STARTTLS, port 21) or implicit (TLS-first, port 990) (env: NIXCOPY_DEST_TLS_MODE)")
+	transferCmd.Flags().StringVar(&destGCSProject, "dest-gcs-project", "", "Destination GCS project ID (env: NIXCOPY_DEST_GCS_PROJECT)")
+	transferCmd.Flags().StringVar(&destCredentialsFile, "dest-credentials-file", "", "Destination GCS service account JSON key file path (env: NIXCOPY_DEST_CREDENTIALS_FILE)")
+	transferCmd.Flags().StringVar(&destImpersonateSA, "dest-impersonate-service-account", "", "Destination GCS service account to impersonate (env: NIXCOPY_DEST_IMPERSONATE_SA)")
+	transferCmd.Flags().StringVar(&destAccessToken, "dest-access-token", "", "Destination GCS short-lived OAuth2 access token (env: NIXCOPY_DEST_ACCESS_TOKEN)")
 
 	// Transfer flags
 	transferCmd.Flags().IntVar(&bufferSize, "buffer-size", 0, "Buffer size in bytes (default: 32MB) (env: NIXCOPY_BUFFER_SIZE)")

@@ -88,7 +88,7 @@ cmd/nixcopy/main.go
 - `mocks/storage_mock.go` — `MockStorage` satisfies the `Storage` and `Resumer` interfaces; used in all unit tests
 
 ### Infrastructure (`internal/infrastructure/`)
-- **storage/** — factory + one file per backend: `local.go`, `sftp.go`, `ftps.go`, `blob.go` (Azure), `s3.go` (AWS)
+- **storage/** — factory + one file per backend: `local.go`, `sftp.go`, `ftps.go`, `blob.go` (Azure), `s3.go` (AWS), `gcs.go` (GCP)
 - **config/** — YAML/JSON loader with `${ENV_VAR}` expansion; precedence: CLI flags > env vars > config file > defaults
 - **logger/** — `StandardLogger` in `applog.go` emits one JSON line per call conforming to [standard-app-log v1.0](https://github.com/preedep/standard-app-log). Log types: `APP_LOG`, `REQ_EX_LOG`, `RES_EX_LOG`. Use `NewNopLogger()` in tests (replaces `zap.NewNop()`). Zap is still in `logger.go` as a dead stub; the CLI no longer calls it. Context injection at startup: `NIXCOPY_CORRELATION_ID`, `NIXCOPY_APP_ID`, `NIXCOPY_APP_VERSION`, `POD_NAME` env vars.
 
@@ -154,13 +154,15 @@ For full CLI flag reference and precedence rules, see [CLI_USAGE.md](docs/guides
 
 Auth methods that require cloud metadata (IAM roles, Managed Identity) only work on the matching infrastructure. Mixing them silently fails.
 
-| Environment | AWS S3 auth | Azure Blob auth |
-|---|---|---|
-| AWS EC2 / ECS / Lambda | `iam_role` ✅ recommended | `shared_key` / `sas_token` / `service_principal` |
-| Azure VM / App Service | `access_key` | `managed_identity` ✅ recommended |
-| Amazon EKS | `web_identity` (IRSA) ✅ | `service_principal` |
-| Azure AKS | `access_key` | `managed_identity` (Workload Identity) ✅ |
-| On-premise / local | `access_key` | `shared_key` / `sas_token` |
+| Environment | AWS S3 auth | Azure Blob auth | GCS auth |
+|---|---|---|---|
+| AWS EC2 / ECS / Lambda | `iam_role` ✅ recommended | `shared_key` / `sas_token` / `service_principal` | `service_account` |
+| Azure VM / App Service | `access_key` | `managed_identity` ✅ recommended | `service_account` |
+| GCE VM | `access_key` | `shared_key` / `sas_token` | `application_default` ✅ recommended |
+| Amazon EKS | `web_identity` (IRSA) ✅ | `service_principal` | `service_account` |
+| Azure AKS | `access_key` | `managed_identity` (Workload Identity) ✅ | `service_account` |
+| GKE | `access_key` | `shared_key` / `sas_token` | `application_default` (Workload Identity) ✅ |
+| On-premise / local | `access_key` | `shared_key` / `sas_token` | `service_account` / `access_token` |
 
 For detailed setup steps, cross-account and Kubernetes scenarios, see [AUTHENTICATION.md](docs/guides/authentication.md) and [ENVIRONMENT_GUIDE.md](docs/guides/environment-guide.md).
 

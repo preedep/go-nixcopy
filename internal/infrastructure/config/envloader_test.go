@@ -417,3 +417,81 @@ func TestLoadFromEnv_EnvOverridesConfigFile(t *testing.T) {
 		t.Errorf("SFTP.Username = %q, want original (env not set, should keep config value)", cfg.Source.SFTP.Username)
 	}
 }
+
+// Gap 6: GCS source env vars branch in applySourceEnv.
+func TestLoadFromEnv_SourceGCS(t *testing.T) {
+	t.Setenv("NIXCOPY_SOURCE_TYPE", "gcs")
+	t.Setenv("NIXCOPY_SOURCE_GCS_PROJECT", "my-gcp-project")
+	t.Setenv("NIXCOPY_SOURCE_BUCKET", "src-bucket")
+	t.Setenv("NIXCOPY_SOURCE_AUTH_TYPE", "service_account")
+	t.Setenv("NIXCOPY_SOURCE_CREDENTIALS_FILE", "/tmp/sa.json")
+	t.Setenv("NIXCOPY_SOURCE_IMPERSONATE_SA", "sa@my-project.iam.gserviceaccount.com")
+	t.Setenv("NIXCOPY_SOURCE_ACCESS_TOKEN", "ya29.src-token")
+
+	cfg := DefaultConfig()
+	LoadFromEnv(cfg)
+
+	if cfg.Source.Type != StorageTypeGCS {
+		t.Errorf("Source.Type = %q, want %q", cfg.Source.Type, StorageTypeGCS)
+	}
+	if cfg.Source.GCS == nil {
+		t.Fatal("Source.GCS is nil")
+	}
+	if cfg.Source.GCS.ProjectID != "my-gcp-project" {
+		t.Errorf("GCS.ProjectID = %q, want my-gcp-project", cfg.Source.GCS.ProjectID)
+	}
+	if cfg.Source.GCS.Bucket != "src-bucket" {
+		t.Errorf("GCS.Bucket = %q, want src-bucket", cfg.Source.GCS.Bucket)
+	}
+	if cfg.Source.GCS.AuthType != GCSAuthServiceAccount {
+		t.Errorf("GCS.AuthType = %q, want %q", cfg.Source.GCS.AuthType, GCSAuthServiceAccount)
+	}
+	if cfg.Source.GCS.CredentialsFile != "/tmp/sa.json" {
+		t.Errorf("GCS.CredentialsFile = %q, want /tmp/sa.json", cfg.Source.GCS.CredentialsFile)
+	}
+	if cfg.Source.GCS.ImpersonateServiceAccount != "sa@my-project.iam.gserviceaccount.com" {
+		t.Errorf("GCS.ImpersonateServiceAccount = %q, want sa@my-project.iam.gserviceaccount.com", cfg.Source.GCS.ImpersonateServiceAccount)
+	}
+	if cfg.Source.GCS.AccessToken != "ya29.src-token" {
+		t.Errorf("GCS.AccessToken = %q, want ya29.src-token", cfg.Source.GCS.AccessToken)
+	}
+}
+
+// Gap 7: GCS dest env vars branch in applyDestEnv.
+func TestLoadFromEnv_DestGCS(t *testing.T) {
+	t.Setenv("NIXCOPY_DEST_TYPE", "gcs")
+	t.Setenv("NIXCOPY_DEST_GCS_PROJECT", "dst-gcp-project")
+	t.Setenv("NIXCOPY_DEST_BUCKET", "dst-bucket")
+	t.Setenv("NIXCOPY_DEST_AUTH_TYPE", "access_token")
+	t.Setenv("NIXCOPY_DEST_CREDENTIALS_FILE", "/tmp/dst-sa.json")
+	t.Setenv("NIXCOPY_DEST_IMPERSONATE_SA", "dst-sa@my-project.iam.gserviceaccount.com")
+	t.Setenv("NIXCOPY_DEST_ACCESS_TOKEN", "ya29.dst-token")
+
+	cfg := DefaultConfig()
+	LoadFromEnv(cfg)
+
+	if cfg.Destination.Type != StorageTypeGCS {
+		t.Errorf("Destination.Type = %q, want %q", cfg.Destination.Type, StorageTypeGCS)
+	}
+	if cfg.Destination.GCS == nil {
+		t.Fatal("Destination.GCS is nil")
+	}
+	if cfg.Destination.GCS.ProjectID != "dst-gcp-project" {
+		t.Errorf("GCS.ProjectID = %q, want dst-gcp-project", cfg.Destination.GCS.ProjectID)
+	}
+	if cfg.Destination.GCS.Bucket != "dst-bucket" {
+		t.Errorf("GCS.Bucket = %q, want dst-bucket", cfg.Destination.GCS.Bucket)
+	}
+	if cfg.Destination.GCS.AuthType != GCSAuthAccessToken {
+		t.Errorf("GCS.AuthType = %q, want %q", cfg.Destination.GCS.AuthType, GCSAuthAccessToken)
+	}
+	if cfg.Destination.GCS.CredentialsFile != "/tmp/dst-sa.json" {
+		t.Errorf("GCS.CredentialsFile = %q, want /tmp/dst-sa.json", cfg.Destination.GCS.CredentialsFile)
+	}
+	if cfg.Destination.GCS.ImpersonateServiceAccount != "dst-sa@my-project.iam.gserviceaccount.com" {
+		t.Errorf("GCS.ImpersonateServiceAccount = %q, want dst-sa@my-project.iam.gserviceaccount.com", cfg.Destination.GCS.ImpersonateServiceAccount)
+	}
+	if cfg.Destination.GCS.AccessToken != "ya29.dst-token" {
+		t.Errorf("GCS.AccessToken = %q, want ya29.dst-token", cfg.Destination.GCS.AccessToken)
+	}
+}

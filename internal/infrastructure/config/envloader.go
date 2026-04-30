@@ -100,6 +100,21 @@ func applySourceEnv(src *SourceConfig) {
 		setEnvString(&src.BlobStorage.ClientID, "NIXCOPY_SOURCE_CLIENT_ID")
 		setEnvString(&src.BlobStorage.ClientSecret, "NIXCOPY_SOURCE_CLIENT_SECRET")
 		setEnvBool(&src.BlobStorage.UseManagedIdentity, "NIXCOPY_SOURCE_USE_MANAGED_IDENTITY")
+
+	case StorageTypeGCS:
+		if src.GCS == nil {
+			src.GCS = &GCSConfig{}
+		}
+		setEnvString(&src.GCS.ProjectID, "NIXCOPY_SOURCE_GCS_PROJECT")
+		setEnvString(&src.GCS.Bucket, "NIXCOPY_SOURCE_BUCKET")
+		setEnvString(&src.GCS.Endpoint, "NIXCOPY_SOURCE_ENDPOINT")
+		if v := os.Getenv("NIXCOPY_SOURCE_AUTH_TYPE"); v != "" {
+			src.GCS.AuthType = GCSAuthType(v)
+		}
+		setEnvString(&src.GCS.CredentialsFile, "NIXCOPY_SOURCE_CREDENTIALS_FILE")
+		setEnvString(&src.GCS.CredentialsJSON, "NIXCOPY_SOURCE_CREDENTIALS_JSON")
+		setEnvString(&src.GCS.ImpersonateServiceAccount, "NIXCOPY_SOURCE_IMPERSONATE_SA")
+		setEnvString(&src.GCS.AccessToken, "NIXCOPY_SOURCE_ACCESS_TOKEN")
 	}
 }
 
@@ -173,6 +188,21 @@ func applyDestEnv(dst *DestinationConfig) {
 		setEnvString(&dst.BlobStorage.ClientID, "NIXCOPY_DEST_CLIENT_ID")
 		setEnvString(&dst.BlobStorage.ClientSecret, "NIXCOPY_DEST_CLIENT_SECRET")
 		setEnvBool(&dst.BlobStorage.UseManagedIdentity, "NIXCOPY_DEST_USE_MANAGED_IDENTITY")
+
+	case StorageTypeGCS:
+		if dst.GCS == nil {
+			dst.GCS = &GCSConfig{}
+		}
+		setEnvString(&dst.GCS.ProjectID, "NIXCOPY_DEST_GCS_PROJECT")
+		setEnvString(&dst.GCS.Bucket, "NIXCOPY_DEST_BUCKET")
+		setEnvString(&dst.GCS.Endpoint, "NIXCOPY_DEST_ENDPOINT")
+		if v := os.Getenv("NIXCOPY_DEST_AUTH_TYPE"); v != "" {
+			dst.GCS.AuthType = GCSAuthType(v)
+		}
+		setEnvString(&dst.GCS.CredentialsFile, "NIXCOPY_DEST_CREDENTIALS_FILE")
+		setEnvString(&dst.GCS.CredentialsJSON, "NIXCOPY_DEST_CREDENTIALS_JSON")
+		setEnvString(&dst.GCS.ImpersonateServiceAccount, "NIXCOPY_DEST_IMPERSONATE_SA")
+		setEnvString(&dst.GCS.AccessToken, "NIXCOPY_DEST_ACCESS_TOKEN")
 	}
 }
 

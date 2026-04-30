@@ -122,8 +122,30 @@ func TestNewStorageFromSourceConfig_S3_NilConfig(t *testing.T) {
 	}
 }
 
+func TestNewStorageFromSourceConfig_GCS(t *testing.T) {
+	cfg := &config.SourceConfig{
+		Type: config.StorageTypeGCS,
+		GCS:  &config.GCSConfig{Bucket: "my-bucket"},
+	}
+	s, err := storage.NewStorageFromSourceConfig(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if s == nil {
+		t.Fatal("expected non-nil storage")
+	}
+}
+
+func TestNewStorageFromSourceConfig_GCS_NilConfig(t *testing.T) {
+	cfg := &config.SourceConfig{Type: config.StorageTypeGCS}
+	_, err := storage.NewStorageFromSourceConfig(cfg)
+	if err == nil {
+		t.Fatal("expected error for nil GCS config")
+	}
+}
+
 func TestNewStorageFromSourceConfig_Unknown(t *testing.T) {
-	cfg := &config.SourceConfig{Type: "gcs"}
+	cfg := &config.SourceConfig{Type: "unknown"}
 	_, err := storage.NewStorageFromSourceConfig(cfg)
 	if err == nil {
 		t.Fatal("expected error for unknown storage type")
@@ -245,8 +267,30 @@ func TestNewStorageFromDestConfig_S3_NilConfig(t *testing.T) {
 	}
 }
 
+func TestNewStorageFromDestConfig_GCS(t *testing.T) {
+	cfg := &config.DestinationConfig{
+		Type: config.StorageTypeGCS,
+		GCS:  &config.GCSConfig{Bucket: "dest-bucket"},
+	}
+	s, err := storage.NewStorageFromDestConfig(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if s == nil {
+		t.Fatal("expected non-nil storage")
+	}
+}
+
+func TestNewStorageFromDestConfig_GCS_NilConfig(t *testing.T) {
+	cfg := &config.DestinationConfig{Type: config.StorageTypeGCS}
+	_, err := storage.NewStorageFromDestConfig(cfg)
+	if err == nil {
+		t.Fatal("expected error for nil GCS config")
+	}
+}
+
 func TestNewStorageFromDestConfig_Unknown(t *testing.T) {
-	cfg := &config.DestinationConfig{Type: "gcs"}
+	cfg := &config.DestinationConfig{Type: "unknown"}
 	_, err := storage.NewStorageFromDestConfig(cfg)
 	if err == nil {
 		t.Fatal("expected error for unknown storage type")
