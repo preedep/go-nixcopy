@@ -39,6 +39,11 @@ make fmt                # go fmt + gofmt
 # Docker
 make docker-build && make docker-run
 
+# Integration tests (local — requires Docker)
+make integration-test-local   # spin up SFTP + FTPS + MinIO, run integration suite, tear down
+make integration-test-down    # tear down containers without running tests
+./test-integration.sh ftps    # run only the FTPS suite via individual docker run
+
 # Clean
 make clean              # build artifacts (bin/)
 make clean-dist         # release artifacts (dist/)
@@ -214,6 +219,33 @@ go test ./internal/usecase/... -run TestPatternMatcher   # specific test
 go test -race ./...                                       # race detector
 go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out
 ```
+
+### Integration Tests
+
+Integration tests use the `//go:build integration` tag and require real service containers. There are two ways to run them:
+
+**Docker Compose (recommended for local dev)** — single command, tears down automatically:
+```bash
+make integration-test-local
+```
+Starts: SFTP (port 2222), FTPS/pure-ftpd (port 21, explicit TLS, self-signed cert), MinIO/S3 (port 9000). All env vars are set automatically.
+
+**Shell script (CI-style, individual docker run)** — matches the CI workflow:
+```bash
+./test-integration.sh            # all suites
+./test-integration.sh ftps       # FTPS only
+./test-integration.sh sftp s3    # specific suites
+./test-integration.sh -v --no-clean   # verbose, keep containers
+```
+
+Integration test files live alongside unit tests, gated by `-tags=integration`. Each file's helper skips automatically when its required env vars are absent, so `go test ./...` (no tag) always runs cleanly.
+
+| File | Suite | Skip guard |
+|---|---|---|
+| `local_integration_test.go` | LocalStorage | never skipped (uses t.TempDir) |
+| `sftp_integration_test.go` | SFTPStorage | `SFTP_HOST` |
+| `ftps_integration_test.go` | FTPSStorage | `FTPS_HOST` |
+| `s3_integration_test.go` | S3Storage | `S3_ENDPOINT` |
 
 ### Benchmarks
 

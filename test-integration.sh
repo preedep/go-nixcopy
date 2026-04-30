@@ -29,6 +29,7 @@ header()  { echo -e "\n${BOLD}═══ $* ═══${NC}"; }
 RUN_LOCAL=false
 RUN_S3=false
 RUN_SFTP=false
+RUN_FTPS=false
 RUN_ALL=true
 VERBOSE=""
 CLEAN=true
@@ -39,10 +40,11 @@ for arg in "$@"; do
     local)      RUN_LOCAL=true;  RUN_ALL=false ;;
     s3)         RUN_S3=true;     RUN_ALL=false ;;
     sftp)       RUN_SFTP=true;   RUN_ALL=false ;;
+    ftps)       RUN_FTPS=true;   RUN_ALL=false ;;
     -v|--verbose) VERBOSE="-v" ;;
     --no-clean) CLEAN=false ;;
     -h|--help)
-      echo "Usage: $0 [local|s3|sftp] [-v] [--no-clean]"
+      echo "Usage: $0 [local|s3|sftp|ftps] [-v] [--no-clean]"
       exit 0 ;;
     *) error "Unknown argument: $arg"; exit 1 ;;
   esac
@@ -52,18 +54,25 @@ if $RUN_ALL; then
   RUN_LOCAL=true
   RUN_S3=true
   RUN_SFTP=true
+  RUN_FTPS=true
 fi
 
 # ── constants ─────────────────────────────────────────────────────────────────
 MINIO_CONTAINER="nixcopy-minio-test"
 SFTP_CONTAINER="nixcopy-sftp-test"
+FTPS_CONTAINER="nixcopy-ftps-test"
 MINIO_PORT=9000
 SFTP_PORT=2222
+FTPS_PORT=21
+FTPS_PASSIVE_MIN=30000
+FTPS_PASSIVE_MAX=30009
 MINIO_USER="minioadmin"
 MINIO_PASS="minioadmin"
 MINIO_BUCKET="test-bucket"
 SFTP_USER="testuser"
 SFTP_PASS="testpass"
+FTPS_USER="testuser"
+FTPS_PASS="testpass"
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 require_docker() {
@@ -109,7 +118,7 @@ cleanup() {
   fi
 
   header "Cleanup"
-  for name in "$MINIO_CONTAINER" "$SFTP_CONTAINER"; do
+  for name in "$MINIO_CONTAINER" "$SFTP_CONTAINER" "$FTPS_CONTAINER"; do
     if docker ps -a --format '{{.Names}}' | grep -q "^${name}$"; then
       info "Stopping and removing $name"
       docker rm -f "$name" &>/dev/null || true
@@ -194,6 +203,48 @@ start_sftp() {
   return 1
 }
 
+# ── FTPS ──────────────────────────────────────────────────────────────────────
+start_ftps() {
+  header "Starting FTPS server (stilliard/pure-ftpd, explicit TLS)"
+
+  if container_running "$FTPS_CONTAINER"; then
+    info "FTPS container already running — reusing it"
+    return 0
+  fi
+
+  if ! port_free $FTPS_PORT; then
+    error "Port $FTPS_PORT is already in use."
+    exit 1
+  fi
+
+  docker run -d \
+    --name "$FTPS_CONTAINER" \
+    -p "${FTPS_PORT}:21" \
+    -p "${FTPS_PASSIVE_MIN}-${FTPS_PASSIVE_MAX}:${FTPS_PASSIVE_MIN}-${FTPS_PASSIVE_MAX}" \
+    -e FTP_USER_NAME="$FTPS_USER" \
+    -e FTP_USER_PASS="$FTPS_PASS" \
+    -e FTP_USER_HOME=/home/testuser \
+    -e PUBLICHOST=127.0.0.1 \
+    -e PASSIVE_MIN_PORT="$FTPS_PASSIVE_MIN" \
+    -e PASSIVE_MAX_PORT="$FTPS_PASSIVE_MAX" \
+    -e ADDED_FLAGS="--tls=1" \
+    stilliard/pure-ftpd \
+    > /dev/null
+
+  info "Waiting for FTPS to be ready..."
+  for i in $(seq 1 30); do
+    if docker exec "$FTPS_CONTAINER" ps -e -o comm 2>/dev/null | grep -q pure-ftpd; then
+      success "FTPS ready at localhost:${FTPS_PORT} (user: $FTPS_USER, TLS: explicit, skip_verify: true)"
+      return 0
+    fi
+    sleep 1
+  done
+
+  error "FTPS container did not become ready in time"
+  docker logs "$FTPS_CONTAINER" 2>&1 | tail -20
+  return 1
+}
+
 # ── run tests ─────────────────────────────────────────────────────────────────
 run_tests() {
   local tags="$1"
@@ -262,6 +313,26 @@ if $RUN_SFTP; then
     success "SFTP tests passed"
   else
     error "SFTP tests FAILED"
+    EXIT_CODE=1
+  fi
+fi
+
+# ─ FTPS ─
+if $RUN_FTPS; then
+  require_docker
+  start_ftps
+
+  header "Suite: FTPS"
+  if run_tests "" "TestFTPSStorage" \
+       "FTPS_HOST=localhost" \
+       "FTPS_PORT=${FTPS_PORT}" \
+       "FTPS_USERNAME=${FTPS_USER}" \
+       "FTPS_PASSWORD=${FTPS_PASS}" \
+       "FTPS_TLS_MODE=explicit" \
+       "FTPS_SKIP_VERIFY=true"; then
+    success "FTPS tests passed"
+  else
+    error "FTPS tests FAILED"
     EXIT_CODE=1
   fi
 fi
