@@ -56,6 +56,16 @@ git tag v1.x.x && git push origin v1.x.x  # trigger full release in CI
 
 See [BUILD.md](docs/development/build.md) for release build flags, binary size benchmarks, and CI/CD integration examples.
 
+## CI Pitfalls
+
+Three non-obvious issues that have already burned us — don't repeat them:
+
+1. **golangci-lint `install-mode: goinstall`** (`.github/workflows/ci.yml`): golangci-lint pre-built binaries are compiled with the Go version available at release time. When `go.mod` targets a newer Go minor version (e.g. `go 1.25`), the binary refuses to run with *"Go language version used to build golangci-lint is lower than targeted"*. The CI uses `install-mode: goinstall` so golangci-lint is compiled from source with the currently-installed Go toolchain. Do not change this back to `binary`.
+
+2. **Never commit the `toolchain` directive in `go.mod`**: `go mod tidy` auto-inserts `toolchain goX.Y.Z` based on the developer's local patch version (e.g. `toolchain go1.25.4`). CI runners typically only have the `.0` patch release (`go1.25.0`), causing *"version go1.25.4 does not match go tool version go1.25.0"*. After running `go mod tidy` locally, remove the `toolchain` line before committing.
+
+3. **Dockerfile builder image must match `go.mod` Go version**: The builder stage (`golang:X.Y-alpineZ`) must be kept in sync with the `go` directive in `go.mod`. A mismatch causes `go mod download` to fail with *"go.mod requires go >= X.Y (running go A.B)"*.
+
 ## Distribution Channels
 
 Releases are fully automated via GoReleaser (`.goreleaser.yaml`) triggered by a `v*` tag push on `main`.
