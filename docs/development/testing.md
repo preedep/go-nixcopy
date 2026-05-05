@@ -69,11 +69,23 @@ internal/
 │   │                                  (invalid patterns, multiple **, prefix mismatch) → 100% coverage
 │   └── transfer_test.go             — TransferConfig / TransferResult fields
 ├── infrastructure/config/
-│   ├── config_test.go               — YAML load, ${ENV_VAR} expansion, defaults
-│   └── envloader_test.go            — NIXCOPY_* env var loading (all storage types + transfer flags)
+│   ├── config_test.go               — DefaultConfig values, StorageType/S3AuthType/BlobAuthType/GCSAuthType
+│   │                                  constants, SFTPConfig/S3Config/GCSConfig/BlobConfig struct fields
+│   ├── envloader_test.go            — NIXCOPY_* env var loading (all storage types + transfer flags),
+│   │                                  ApplyBackendEnv idempotency, env-overrides-config-file precedence
+│   └── yamlloader_test.go           — LoadFile: all six storage backends (SFTP/FTPS/S3/Blob/GCS/local),
+│                                      all auth subtypes (shared_key, sas_token, connection_string,
+│                                      service_principal, managed_identity, access_key, web_identity,
+│                                      assume_role, service_account, impersonate, access_token,
+│                                      application_default), transfer settings (all fields including
+│                                      duration strings), logging config, ${ENV_VAR} expansion,
+│                                      defaults preserved when sections omitted, partial override,
+│                                      file-not-found error, malformed YAML error, config.example.yaml
 ├── infrastructure/logger/
 │   └── applog_test.go               — all log methods, field helpers, WithCorrelation/WithRequest/WithTrace,
-│                                      NopLogger, GenerateID, extra fields, parent immutability
+│                                      NopLogger, GenerateID, extra fields, parent immutability,
+│                                      WithMinLevel filtering (debug filtered at INFO, all levels at DEBUG,
+│                                      child logger inherits minLevel, InfoReqEx passes at INFO)
 ├── infrastructure/storage/
 │   ├── blob_auth_test.go            — BlobStorage.Connect auth error paths
 │   ├── blob_multipart_test.go       — blobBlockSizeFor: 5 size scenarios
@@ -99,7 +111,9 @@ internal/
 │                                      ReadFrom/AppendWrite (Resumer), Disconnect no-op
 ├── interfaces/cli/
 │   ├── flags_test.go                — applyCliFlags (SFTP/FTPS/S3/Blob/local source+dest, private key, all transfer flags),
-│                                      validateConfig, --skip-existing, --resume, CLI-over-env precedence
+│                                      validateConfig, --skip-existing, --resume, CLI-over-env precedence;
+│                                      ${ENV_VAR} expansion: private key paths, credentials file paths,
+│                                      expandTransferPaths (--source, --sources slice, --dest, ${PWD})
 │   ├── ftps_tls_mode_test.go        — --source-tls-mode / --dest-tls-mode: explicit, implicit, empty-no-override,
 │                                      invalid mode rejected, env var path, CLI-over-env precedence
 │   ├── transfer_summary_test.go     — transferSummary JSON shape, omitempty, failed_files
@@ -113,6 +127,8 @@ internal/
     │                                  checksum skipped when resumed, checksum skipped when compressed,
     │                                  ReadFrom error exhausting retries
     ├── transfer_usecase_skip_test.go — SkipExisting: 5 cases including batch
+    ├── transfer_usecase_verbose_test.go — verbose/non-verbose log output: success emits "transfer attempt" DEBUG,
+    │                                  failure emits per-attempt DEBUG + always-on ERROR; DEBUG absent at INFO level
     └── transfer_usecase_test.go     — success, checksum, resume, retry, batch partial failure
 ```
 
@@ -135,6 +151,28 @@ dest.CorruptWrite = true
 
 // Verify Write was (or wasn't) called
 if dest.WriteCalled { ... }
+```
+
+### Verbose logging tests
+
+Capture structured JSON log output with `WithOutput` and `WithMinLevel`:
+
+```go
+var buf bytes.Buffer
+log := applog.NewStandardLogger(
+    applog.WithOutput(&buf),
+    applog.WithMinLevel(applog.LogLevelDebug), // verbose
+)
+
+dest.WriteError = errors.New("disk full")
+cfg := &entity.TransferConfig{BufferSize: 1024, RetryAttempts: 1, RetryDelay: 0}
+uc := NewTransferUseCase(src, dest, cfg, log)
+uc.Transfer(ctx, "/src/file.txt", "/dst/file.txt", nil)
+
+// Parse each newline-terminated JSON line from buf, then assert:
+// - "attempt failed" DEBUG appears once per failed attempt
+// - "Transfer failed after all attempts" ERROR always appears
+// - At default INFO level, "attempt failed" DEBUG is absent
 ```
 
 ### Skip-existing tests
@@ -207,6 +245,41 @@ cw.Close()
 // compressed.Len() < 1024*1024
 ```
 
+### YAML file loading tests
+
+`LoadFile` is in the `config` package. Tests write a temp YAML, call `LoadFile`, and assert struct fields:
+
+```go
+func writeTempYAML(t *testing.T, content string) string { ... } // helper in yamlloader_test.go
+
+path := writeTempYAML(t, `
+source:
+  type: sftp
+  sftp:
+    host: sftp.example.com
+    port: 2222
+    password: ${MY_SECRET}   # ${ENV_VAR} is expanded via os.ExpandEnv before parsing
+destination:
+  type: s3
+  s3:
+    region: ap-southeast-1
+    bucket: my-bucket
+    auth_type: access_key
+    access_key_id: AKIAIOSFODNN7EXAMPLE
+    secret_access_key: wJalrXUtnFEMI
+transfer:
+  buffer_size: 67108864
+  retry_delay: 10s    # Duration strings ("30s", "5m", "2h") parsed automatically
+`)
+cfg, err := config.LoadFile(path)
+// cfg.Source.SFTP.Host == "sftp.example.com"
+// cfg.Transfer.BufferSize == 67108864
+// cfg.Transfer.RetryDelay == 10*time.Second
+```
+
+Fields absent from the YAML retain `DefaultConfig()` values. The `${ENV_VAR}` syntax is expanded before
+YAML parsing, so secrets can be stored in environment variables and referenced by name in the config file.
+
 ### Env var tests
 
 ```go
@@ -227,9 +300,9 @@ LoadFromEnv(cfg)
 | Package | Coverage | Notes |
 |---|---|---|
 | `internal/domain/entity` | **100%** | All pattern matching branches including error paths |
-| `internal/infrastructure/config` | ~96% | Config loading, env var loading, all storage types |
+| `internal/infrastructure/config` | ~98% | YAML file loading, env var loading, all storage types and auth subtypes |
 | `internal/usecase` | ~92% | Core transfer logic, all feature paths including progressReader.Close and warning branches |
-| `internal/infrastructure/logger` | ~72% | All log methods, field helpers, child loggers; `logger.go` Zap stub excluded (dead code) |
+| `internal/infrastructure/logger` | ~85% | All log methods, field helpers, child loggers, level filtering; `logger.go` Zap stub excluded (dead code) |
 | `internal/interfaces/cli` | ~58% | Flag wiring, validateConfig, TLS mode; `runTransfer`/`runList` require real storage |
 | `internal/infrastructure/storage` | ~49% | Local fully unit-tested; FTPS/Blob/S3/SFTP nil-client guards + auth paths; happy paths need integration tag |
 

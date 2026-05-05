@@ -82,6 +82,7 @@ type StandardLogger struct {
 	traceID        string
 	spanID         string
 	output         io.Writer
+	minLevel       LogLevel
 	nop            bool
 }
 
@@ -100,7 +101,14 @@ func WithPodName(n string) StandardLoggerOption {
 }
 func WithOutput(w io.Writer) StandardLoggerOption { return func(l *StandardLogger) { l.output = w } }
 
+// WithMinLevel sets the minimum log level. Calls below this level are silently dropped.
+// Defaults to LogLevelInfo when not set.
+func WithMinLevel(level LogLevel) StandardLoggerOption {
+	return func(l *StandardLogger) { l.minLevel = level }
+}
+
 // NewStandardLogger creates a StandardLogger that writes JSON to stdout.
+// The default minimum level is INFO; use WithMinLevel(LogLevelDebug) for verbose output.
 //
 // Example:
 //
@@ -110,7 +118,7 @@ func WithOutput(w io.Writer) StandardLoggerOption { return func(l *StandardLogge
 //	    logger.WithServiceID("sftp-to-s3"),
 //	)
 func NewStandardLogger(opts ...StandardLoggerOption) *StandardLogger {
-	l := &StandardLogger{output: os.Stdout}
+	l := &StandardLogger{output: os.Stdout, minLevel: LogLevelInfo}
 	for _, o := range opts {
 		o(l)
 	}
@@ -198,8 +206,27 @@ func (l *StandardLogger) ErrorResEx(msg string, fields ...Field) {
 	l.emit(LogTypeResEx, LogLevelError, msg, fields)
 }
 
+// levelOrder maps a LogLevel to a numeric rank for comparison (lower = less severe).
+func levelOrder(level LogLevel) int {
+	switch level {
+	case LogLevelDebug:
+		return 0
+	case LogLevelInfo:
+		return 1
+	case LogLevelWarn:
+		return 2
+	case LogLevelError:
+		return 3
+	default:
+		return 1
+	}
+}
+
 func (l *StandardLogger) emit(logType LogType, level LogLevel, msg string, fields []Field) {
 	if l.nop {
+		return
+	}
+	if levelOrder(level) < levelOrder(l.minLevel) {
 		return
 	}
 

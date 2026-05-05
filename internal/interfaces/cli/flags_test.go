@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -130,6 +131,10 @@ func TestApplyCliFlags_SkipExisting_False_DoesNotOverrideConfigFile(t *testing.T
 
 // resetTransferFlags zeros out all package-level flag vars so tests don't bleed state into each other.
 func resetTransferFlags() {
+	sourcePath = ""
+	sourcePaths = nil
+	destPath = ""
+
 	sourceType = ""
 	sourceHost = ""
 	sourcePort = 0
@@ -610,5 +615,156 @@ func TestValidateConfig_ValidConfig(t *testing.T) {
 
 	if err != nil {
 		t.Errorf("validateConfig() should not return error for valid config, got: %v", err)
+	}
+}
+
+// ---- ${ENV_VAR} expansion in path flags ----
+
+func TestApplyCliFlags_SourcePrivateKey_ExpandsEnvVar(t *testing.T) {
+	resetTransferFlags()
+	t.Setenv("TEST_KEY_DIR", "/home/user/.ssh")
+
+	sourceType = "sftp"
+	sourceHost = "sftp.example.com"
+	sourceUsername = "user"
+	sourcePrivateKey = "${TEST_KEY_DIR}/id_rsa"
+
+	cfg := config.DefaultConfig()
+	applyCliFlags(cfg)
+
+	want := "/home/user/.ssh/id_rsa"
+	if cfg.Source.SFTP.PrivateKeyPath != want {
+		t.Errorf("Source.SFTP.PrivateKeyPath = %q, want %q", cfg.Source.SFTP.PrivateKeyPath, want)
+	}
+}
+
+func TestApplyCliFlags_DestPrivateKey_ExpandsEnvVar(t *testing.T) {
+	resetTransferFlags()
+	t.Setenv("TEST_KEY_DIR", "/home/user/.ssh")
+
+	destType = "sftp"
+	destHost = "sftp.example.com"
+	destUsername = "user"
+	destPrivateKey = "${TEST_KEY_DIR}/id_rsa"
+
+	cfg := config.DefaultConfig()
+	applyCliFlags(cfg)
+
+	want := "/home/user/.ssh/id_rsa"
+	if cfg.Destination.SFTP.PrivateKeyPath != want {
+		t.Errorf("Destination.SFTP.PrivateKeyPath = %q, want %q", cfg.Destination.SFTP.PrivateKeyPath, want)
+	}
+}
+
+func TestApplyCliFlags_SourceCredentialsFile_ExpandsEnvVar(t *testing.T) {
+	resetTransferFlags()
+	t.Setenv("TEST_CREDS_DIR", "/etc/gcp")
+
+	sourceType = "gcs"
+	sourceBucket = "my-bucket"
+	sourceCredentialsFile = "${TEST_CREDS_DIR}/sa-key.json"
+
+	cfg := config.DefaultConfig()
+	applyCliFlags(cfg)
+
+	want := "/etc/gcp/sa-key.json"
+	if cfg.Source.GCS.CredentialsFile != want {
+		t.Errorf("Source.GCS.CredentialsFile = %q, want %q", cfg.Source.GCS.CredentialsFile, want)
+	}
+}
+
+func TestApplyCliFlags_DestCredentialsFile_ExpandsEnvVar(t *testing.T) {
+	resetTransferFlags()
+	t.Setenv("TEST_CREDS_DIR", "/etc/gcp")
+
+	destType = "gcs"
+	destBucket = "my-bucket"
+	destCredentialsFile = "${TEST_CREDS_DIR}/sa-key.json"
+
+	cfg := config.DefaultConfig()
+	applyCliFlags(cfg)
+
+	want := "/etc/gcp/sa-key.json"
+	if cfg.Destination.GCS.CredentialsFile != want {
+		t.Errorf("Destination.GCS.CredentialsFile = %q, want %q", cfg.Destination.GCS.CredentialsFile, want)
+	}
+}
+
+func TestApplyCliFlags_PathFlag_PlainStringUnchanged(t *testing.T) {
+	resetTransferFlags()
+
+	sourceType = "sftp"
+	sourceHost = "sftp.example.com"
+	sourceUsername = "user"
+	sourcePrivateKey = "/home/user/.ssh/id_rsa"
+
+	cfg := config.DefaultConfig()
+	applyCliFlags(cfg)
+
+	want := "/home/user/.ssh/id_rsa"
+	if cfg.Source.SFTP.PrivateKeyPath != want {
+		t.Errorf("Source.SFTP.PrivateKeyPath = %q, want %q (plain path must not be mangled)", cfg.Source.SFTP.PrivateKeyPath, want)
+	}
+}
+
+// ---- expandTransferPaths ----
+
+func TestExpandTransferPaths_SourcePath(t *testing.T) {
+	resetTransferFlags()
+	t.Setenv("TEST_DATA_DIR", "/mnt/data")
+
+	sourcePath = "${TEST_DATA_DIR}/input"
+	destPath = "/output"
+	expandTransferPaths()
+
+	want := "/mnt/data/input"
+	if sourcePath != want {
+		t.Errorf("sourcePath = %q, want %q", sourcePath, want)
+	}
+}
+
+func TestExpandTransferPaths_SourcePaths_Slice(t *testing.T) {
+	resetTransferFlags()
+	t.Setenv("TEST_DATA_DIR", "/mnt/data")
+
+	sourcePaths = []string{"${TEST_DATA_DIR}/a.txt", "${TEST_DATA_DIR}/b.txt", "/static/c.txt"}
+	destPath = "/out"
+	expandTransferPaths()
+
+	wants := []string{"/mnt/data/a.txt", "/mnt/data/b.txt", "/static/c.txt"}
+	for i, want := range wants {
+		if sourcePaths[i] != want {
+			t.Errorf("sourcePaths[%d] = %q, want %q", i, sourcePaths[i], want)
+		}
+	}
+}
+
+func TestExpandTransferPaths_DestPath(t *testing.T) {
+	resetTransferFlags()
+	t.Setenv("TEST_OUT_DIR", "/mnt/output")
+
+	sourcePath = "/input"
+	destPath = "${TEST_OUT_DIR}/result"
+	expandTransferPaths()
+
+	want := "/mnt/output/result"
+	if destPath != want {
+		t.Errorf("destPath = %q, want %q", destPath, want)
+	}
+}
+
+func TestExpandTransferPaths_PWD(t *testing.T) {
+	resetTransferFlags()
+	pwd, _ := os.Getwd()
+
+	sourcePath = "${PWD}/files"
+	destPath = "${PWD}/output"
+	expandTransferPaths()
+
+	if sourcePath != pwd+"/files" {
+		t.Errorf("sourcePath = %q, want %q", sourcePath, pwd+"/files")
+	}
+	if destPath != pwd+"/output" {
+		t.Errorf("destPath = %q, want %q", destPath, pwd+"/output")
 	}
 }

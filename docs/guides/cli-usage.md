@@ -59,15 +59,30 @@ nixcopy transfer -c config.yaml \
 
 | Flag | Short | Description | Example |
 |------|-------|-------------|---------|
-| `--source` | `-s` | Source file path | `-s /data/file.zip` |
-| `--dest` | `-d` | Destination file path | `-d /backup/file.zip` |
+| `--source` | `-s` | Source file path or glob pattern. Supports `${ENV_VAR}` expansion. | `-s ${PWD}/data/file.zip` |
+| `--sources` | — | Multiple source paths (comma-separated). Each element is `${ENV_VAR}`-expanded. | `--sources "/a/*.csv,/b/*.csv"` |
+| `--dest` | `-d` | Destination path. Supports `${ENV_VAR}` expansion. | `-d ${OUTDIR}/file.zip` |
+
+nixcopy expands `${VAR}` (and `$VAR`) in `--source`, `--sources`, `--dest`, `--source-private-key`, `--dest-private-key`, `--source-credentials-file`, and `--dest-credentials-file` at runtime using `os.ExpandEnv`. Variables that are unset expand to an empty string.
+
+```bash
+# Use the current directory without shell quoting tricks
+nixcopy transfer --source-type local --dest-type sftp \
+  --dest-host sftp.example.com --dest-username user --dest-password pass \
+  -s "${PWD}/exports" -d "/remote/$(date +%Y%m%d)"
+
+# Reference a key file stored in a variable
+nixcopy transfer --source-type sftp --source-host sftp.example.com \
+  --source-username user --source-private-key "${SSH_KEY_DIR}/id_rsa" \
+  -s /data/file.txt --dest-type local -d /backup/
+```
 
 ### 🔹 General Flags
 
 | Flag | Short | Description | Example |
 |------|-------|-------------|---------|
 | `--config` | `-c` | Config file path | `-c config.yaml` |
-| `--verbose` | `-v` | Verbose output | `-v` |
+| `--verbose` | `-v` | Set log level to DEBUG — shows resolved config, queued files, per-attempt errors, and connection diagnostics | `-v` |
 
 ### 🔹 Source Storage Flags
 
@@ -86,7 +101,7 @@ nixcopy transfer -c config.yaml \
 | `--source-port` | Server port | `--source-port 22` |
 | `--source-username` | Username | `--source-username user` |
 | `--source-password` | Password | `--source-password pass` |
-| `--source-private-key` | Private key path (SFTP only) | `--source-private-key ~/.ssh/id_rsa` |
+| `--source-private-key` | Private key path (SFTP only). `${ENV_VAR}`-expanded. | `--source-private-key ${HOME}/.ssh/id_rsa` |
 | `--source-tls-mode` | FTPS TLS mode: `explicit` (STARTTLS, port 21) or `implicit` (TLS-first, port 990) | `--source-tls-mode explicit` |
 
 #### S3 Source Flags
@@ -113,7 +128,7 @@ nixcopy transfer -c config.yaml \
 | `--source-bucket` | GCS bucket name | `--source-bucket my-bucket` |
 | `--source-gcs-project` | GCP project ID | `--source-gcs-project my-project` |
 | `--source-auth-type` | Auth type: `application_default`, `service_account`, `impersonate`, `access_token` | `--source-auth-type application_default` |
-| `--source-credentials-file` | Path to service account JSON key file | `--source-credentials-file /path/to/sa.json` |
+| `--source-credentials-file` | Path to service account JSON key file. `${ENV_VAR}`-expanded. | `--source-credentials-file ${CREDS_DIR}/sa.json` |
 | `--source-impersonate-service-account` | Service account to impersonate | `--source-impersonate-service-account sa@proj.iam.gserviceaccount.com` |
 | `--source-access-token` | Short-lived OAuth2 access token | `--source-access-token ya29.token` |
 
@@ -134,7 +149,7 @@ nixcopy transfer -c config.yaml \
 | `--dest-port` | Server port | `--dest-port 22` |
 | `--dest-username` | Username | `--dest-username user` |
 | `--dest-password` | Password | `--dest-password pass` |
-| `--dest-private-key` | Private key path (SFTP only) | `--dest-private-key ~/.ssh/id_rsa` |
+| `--dest-private-key` | Private key path (SFTP only). `${ENV_VAR}`-expanded. | `--dest-private-key ${HOME}/.ssh/id_rsa` |
 | `--dest-tls-mode` | FTPS TLS mode: `explicit` (STARTTLS, port 21) or `implicit` (TLS-first, port 990) | `--dest-tls-mode implicit` |
 
 #### S3 Destination Flags
@@ -161,7 +176,7 @@ nixcopy transfer -c config.yaml \
 | `--dest-bucket` | GCS bucket name | `--dest-bucket my-dest-bucket` |
 | `--dest-gcs-project` | GCP project ID | `--dest-gcs-project my-project` |
 | `--dest-auth-type` | Auth type: `application_default`, `service_account`, `impersonate`, `access_token` | `--dest-auth-type application_default` |
-| `--dest-credentials-file` | Path to service account JSON key file | `--dest-credentials-file /path/to/sa.json` |
+| `--dest-credentials-file` | Path to service account JSON key file. `${ENV_VAR}`-expanded. | `--dest-credentials-file ${CREDS_DIR}/sa.json` |
 | `--dest-impersonate-service-account` | Service account to impersonate | `--dest-impersonate-service-account sa@proj.iam.gserviceaccount.com` |
 | `--dest-access-token` | Short-lived OAuth2 access token | `--dest-access-token ya29.token` |
 
@@ -619,17 +634,31 @@ nixcopy transfer --help | grep -E '^\s+--'
 
 ### Verbose Mode
 
+`--verbose` / `-v` sets the logger to `DEBUG` level. The additional output includes:
+
+| What is shown | When |
+|---|---|
+| `config resolved` — source/dest types, buffer, concurrency, retry, checksum, resume, bandwidth, compression | After all flags and env vars are merged |
+| `queued file path=...` — one entry per matched file | After pattern expansion |
+| `transfer attempt attempt=N max_attempts=M` — per retry-loop iteration | Each attempt, including the first |
+| `attempt failed attempt=N error=...` — error from that specific attempt | When an attempt fails (read, write, or checksum error) |
+| `failed to initialize / connect to source/dest storage error=...` | When storage init or connection fails |
+
 ```bash
-# เปิด verbose logging
-nixcopy transfer -c config.yaml -v -s /file -d /file
+# Diagnose a connection problem
+nixcopy transfer -c config.yaml -v -s /data/file.txt -d /backup/
+
+# See which files a glob pattern resolves to
+nixcopy transfer -c config.yaml -v --source-type local --dest-type local \
+  -s '/data/reports/*.pdf' -d /backup/
+
+# Trace every retry attempt on an unreliable network
+nixcopy transfer -c config.yaml -v --retry-attempts 5 -s /data/file.txt -d sftp://...
 ```
 
-### Dry Run (ถ้ามี feature นี้)
-
-```bash
-# ตรวจสอบ configuration โดยไม่ transfer จริง
-nixcopy transfer -c config.yaml --dry-run -s /file -d /file
-```
+Without `--verbose`, errors are still emitted as structured `ERROR`-level JSON when:
+- All retry attempts are exhausted (`Transfer failed after all attempts`)
+- Storage initialisation or connection fails
 
 ---
 
@@ -651,7 +680,7 @@ A: ไม่จำเป็น คุณสามารถใช้ CLI flags �
 A: ได้ CLI flags มีความสำคัญสูงกว่า config file
 
 **Q: ใช้ environment variables ได้ไหม?**  
-A: ได้ 2 รูปแบบ: (1) `NIXCOPY_*` env vars อ่านโดยตรงโดย nixcopy (แนะนำสำหรับ K8s/KPO); (2) `${VAR}` ใน YAML config file ที่ถูก expand ตอน load
+A: ได้ 3 รูปแบบ: (1) `NIXCOPY_*` env vars อ่านโดยตรงโดย nixcopy (แนะนำสำหรับ K8s/KPO); (2) `${VAR}` ใน YAML config file ที่ถูก expand ตอน load; (3) `${VAR}` ใน CLI path flags (`--source`, `--dest`, `--source-private-key`, `--dest-private-key`, `--source-credentials-file`, `--dest-credentials-file`) ที่ถูก expand ที่ runtime
 
 **Q: จะเก็บ passwords อย่างปลอดภัยได้อย่างไร?**  
 A: ใช้ environment variables, AWS Secrets Manager, หรือ Azure Key Vault

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	"github.com/preedep/go-nixcopy/internal/domain/entity"
 	"github.com/preedep/go-nixcopy/internal/infrastructure/config"
@@ -170,16 +169,13 @@ func init() {
 func runTransfer(cmd *cobra.Command, args []string) error {
 	var cfg config.Config
 
-	// Try to load config file if it exists
 	if cfgFile != "" {
-		viper.SetConfigFile(cfgFile)
-		if err := viper.ReadInConfig(); err == nil {
-			if err := viper.Unmarshal(&cfg); err != nil {
-				return fmt.Errorf("failed to unmarshal config: %w", err)
-			}
+		loaded, err := config.LoadFile(cfgFile)
+		if err != nil {
+			return fmt.Errorf("failed to load config file: %w", err)
 		}
+		cfg = *loaded
 	} else {
-		// Use default config if no config file
 		cfg = *config.DefaultConfig()
 	}
 
@@ -211,11 +207,6 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 		cfg.Transfer.BandwidthLimit = bw
 	}
 
-	// Validate configuration
-	if err := validateConfig(&cfg); err != nil {
-		return fmt.Errorf("invalid configuration: %w", err)
-	}
-
 	appID := os.Getenv("NIXCOPY_APP_ID")
 	if appID == "" {
 		appID = "go-nixcopy"
@@ -225,11 +216,16 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 		appVersion = "1.0.0"
 	}
 
+	logLevel := logger.LogLevelInfo
+	if verbose {
+		logLevel = logger.LogLevelDebug
+	}
 	log := logger.NewStandardLogger(
 		logger.WithAppID(appID),
 		logger.WithAppVersion(appVersion),
 		logger.WithServiceID(fmt.Sprintf("%s-to-%s", cfg.Source.Type, cfg.Destination.Type)),
 		logger.WithPodName(os.Getenv("POD_NAME")),
+		logger.WithMinLevel(logLevel),
 	)
 
 	corrID := os.Getenv("NIXCOPY_CORRELATION_ID")
@@ -237,6 +233,25 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 		corrID = logger.GenerateID()
 	}
 	log = log.WithCorrelation(corrID, logger.GenerateID())
+
+	log.Debug("config resolved",
+		logger.F("source_type", string(cfg.Source.Type)),
+		logger.F("dest_type", string(cfg.Destination.Type)),
+		logger.F("buffer_size", cfg.Transfer.BufferSize),
+		logger.F("concurrent_files", cfg.Transfer.ConcurrentFiles),
+		logger.F("retry_attempts", cfg.Transfer.RetryAttempts),
+		logger.F("retry_delay", cfg.Transfer.RetryDelay.String()),
+		logger.F("verify_checksum", cfg.Transfer.VerifyChecksum),
+		logger.F("enable_resume", cfg.Transfer.EnableResume),
+		logger.F("skip_existing", cfg.Transfer.SkipExisting),
+		logger.F("bandwidth_limit", cfg.Transfer.BandwidthLimit),
+		logger.F("compression", cfg.Transfer.Compression),
+	)
+
+	// Validate configuration
+	if err := validateConfig(&cfg); err != nil {
+		return fmt.Errorf("invalid configuration: %w", err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -251,22 +266,38 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 
 	sourceStorage, err := storage.NewStorageFromSourceConfig(&cfg.Source)
 	if err != nil {
+		log.ErrorReqEx("failed to initialize source storage",
+			logger.F("type", string(cfg.Source.Type)),
+			logger.FError(err),
+		)
 		return fmt.Errorf("failed to create source storage: %w", err)
 	}
 
 	destStorage, err := storage.NewStorageFromDestConfig(&cfg.Destination)
 	if err != nil {
+		log.ErrorReqEx("failed to initialize destination storage",
+			logger.F("type", string(cfg.Destination.Type)),
+			logger.FError(err),
+		)
 		return fmt.Errorf("failed to create destination storage: %w", err)
 	}
 
 	log.InfoReqEx("Connecting to source storage", logger.F("type", string(cfg.Source.Type)))
 	if err := sourceStorage.Connect(ctx); err != nil {
+		log.ErrorReqEx("failed to connect to source storage",
+			logger.F("type", string(cfg.Source.Type)),
+			logger.FError(err),
+		)
 		return fmt.Errorf("failed to connect to source: %w", err)
 	}
 	defer func() { _ = sourceStorage.Disconnect(ctx) }()
 
 	log.InfoReqEx("Connecting to destination storage", logger.F("type", string(cfg.Destination.Type)))
 	if err := destStorage.Connect(ctx); err != nil {
+		log.ErrorReqEx("failed to connect to destination storage",
+			logger.F("type", string(cfg.Destination.Type)),
+			logger.FError(err),
+		)
 		return fmt.Errorf("failed to connect to destination: %w", err)
 	}
 	defer func() { _ = destStorage.Disconnect(ctx) }()
@@ -285,6 +316,8 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 	}
 
 	transferUseCase := usecase.NewTransferUseCase(sourceStorage, destStorage, transferConfig, log)
+
+	expandTransferPaths()
 
 	// Collect all source paths
 	var allSourcePaths []string
@@ -327,6 +360,9 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 		logger.F("count", len(filesToTransfer)),
 		logger.F("concurrent", cfg.Transfer.ConcurrentFiles),
 	)
+	for _, f := range filesToTransfer {
+		log.Debug("queued file", logger.F("path", f))
+	}
 
 	progressChan := make(chan entity.TransferProgress, 100)
 	var progressWg sync.WaitGroup
@@ -439,4 +475,14 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// expandTransferPaths expands ${ENV_VAR} references in the path flags so users
+// can write --source "${PWD}/data" or --dest "${OUTDIR}/result" in scripts.
+func expandTransferPaths() {
+	sourcePath = os.ExpandEnv(sourcePath)
+	for i, p := range sourcePaths {
+		sourcePaths[i] = os.ExpandEnv(p)
+	}
+	destPath = os.ExpandEnv(destPath)
 }

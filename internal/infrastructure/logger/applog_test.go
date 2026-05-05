@@ -68,11 +68,83 @@ func TestNewStandardLogger_Error(t *testing.T) {
 }
 
 func TestNewStandardLogger_Debug(t *testing.T) {
-	l, buf := newBufLogger()
+	l, buf := newBufLogger(WithMinLevel(LogLevelDebug))
 	l.Debug("verbose")
 	m := decodeLog(t, buf)
 	if m["level"] != string(LogLevelDebug) {
 		t.Errorf("level = %v, want DEBUG", m["level"])
+	}
+}
+
+func TestMinLevel_Debug_FilteredAtInfo(t *testing.T) {
+	// Default minLevel is INFO, so Debug calls must be silently dropped.
+	l, buf := newBufLogger()
+	l.Debug("should not appear")
+	if buf.Len() != 0 {
+		t.Errorf("Debug logged at INFO minLevel; got output: %s", buf.String())
+	}
+}
+
+func TestMinLevel_Info_PassesAtInfo(t *testing.T) {
+	l, buf := newBufLogger() // default INFO
+	l.Info("should appear")
+	if buf.Len() == 0 {
+		t.Error("Info dropped at INFO minLevel")
+	}
+}
+
+func TestMinLevel_Warn_PassesAtInfo(t *testing.T) {
+	l, buf := newBufLogger()
+	l.Warn("should appear")
+	if buf.Len() == 0 {
+		t.Error("Warn dropped at INFO minLevel")
+	}
+}
+
+func TestMinLevel_Error_PassesAtInfo(t *testing.T) {
+	l, buf := newBufLogger()
+	l.Error("should appear")
+	if buf.Len() == 0 {
+		t.Error("Error dropped at INFO minLevel")
+	}
+}
+
+func TestMinLevel_Debug_PassesAtDebug(t *testing.T) {
+	l, buf := newBufLogger(WithMinLevel(LogLevelDebug))
+	l.Debug("verbose output")
+	if buf.Len() == 0 {
+		t.Error("Debug dropped at DEBUG minLevel")
+	}
+	m := decodeLog(t, buf)
+	if m["level"] != string(LogLevelDebug) {
+		t.Errorf("level = %v, want DEBUG", m["level"])
+	}
+}
+
+func TestMinLevel_ChildInheritsMinLevel(t *testing.T) {
+	// WithCorrelation returns a child; minLevel must propagate.
+	l, buf := newBufLogger(WithMinLevel(LogLevelDebug))
+	child := l.WithCorrelation("corr-id", "req-id")
+	child.Debug("child debug")
+	if buf.Len() == 0 {
+		t.Error("child Debug dropped even though parent minLevel is DEBUG")
+	}
+}
+
+func TestMinLevel_ChildFiltersDebug_WhenParentIsInfo(t *testing.T) {
+	l, buf := newBufLogger() // default INFO
+	child := l.WithCorrelation("corr-id", "req-id")
+	child.Debug("should be filtered")
+	if buf.Len() != 0 {
+		t.Errorf("child Debug passed INFO filter; got: %s", buf.String())
+	}
+}
+
+func TestMinLevel_InfoReqEx_PassesAtInfo(t *testing.T) {
+	l, buf := newBufLogger()
+	l.InfoReqEx("external call")
+	if buf.Len() == 0 {
+		t.Error("InfoReqEx dropped at INFO minLevel")
 	}
 }
 
