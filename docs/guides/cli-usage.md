@@ -107,8 +107,16 @@ nixcopy transfer --source-type local --dest-type sftp \
 
 | Flag | Description | Example |
 |------|-------------|---------|
-| `--source-type` | Storage type (sftp, ftps, blob, s3, gcs) | `--source-type sftp` |
+| `--source-type` | Storage type (`local`, `sftp`, `ftps`, `blob`, `s3`, `gcs`) | `--source-type sftp` |
 | `--source-auth-type` | Authentication type | `--source-auth-type iam_role` |
+
+#### Local Source
+
+No extra flags needed. Pass the absolute file path directly to `-s` / `--source`:
+
+```bash
+nixcopy transfer --source-type local -s /data/archive.zip --dest-type sftp ...
+```
 
 #### SFTP/FTPS Source Flags
 
@@ -155,8 +163,16 @@ nixcopy transfer --source-type local --dest-type sftp \
 
 | Flag | Description | Example |
 |------|-------------|---------|
-| `--dest-type` | Storage type (sftp, ftps, blob, s3, gcs) | `--dest-type s3` |
+| `--dest-type` | Storage type (`local`, `sftp`, `ftps`, `blob`, `s3`, `gcs`) | `--dest-type s3` |
 | `--dest-auth-type` | Authentication type | `--dest-auth-type access_key` |
+
+#### Local Destination
+
+No extra flags needed. Pass the absolute file path or trailing-slash directory to `-d` / `--dest`:
+
+```bash
+nixcopy transfer --source-type sftp ... --dest-type local -d /data/output/
+```
 
 #### SFTP/FTPS Destination Flags
 
@@ -676,6 +692,8 @@ nixcopy transfer -c config.yaml -v --retry-attempts 5 -s /data/file.txt -d sftp:
 Without `--verbose`, errors are still emitted as structured `ERROR`-level JSON when:
 - All retry attempts are exhausted (`Transfer failed after all attempts`)
 - Storage initialisation or connection fails
+
+**Usage text is only shown for configuration/validation errors** (wrong or missing flags). Runtime errors such as connection failures or transfer errors print only the error message — no usage text.
 
 ---
 

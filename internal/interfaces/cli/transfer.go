@@ -424,7 +424,6 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 		results = batchResults
 	}
 
-	close(progressChan)
 	progressWg.Wait() // ensure all progress lines are flushed to stderr before JSON hits stdout
 	totalDuration := time.Since(startTime)
 
