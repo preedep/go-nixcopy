@@ -107,6 +107,14 @@ func applyCliFlags(cfg *config.Config) {
 			cfg.Source.BlobStorage.AuthType = config.BlobAuthSharedKey
 		}
 
+	case config.StorageTypeLocal:
+		if cfg.Source.Local == nil {
+			cfg.Source.Local = &config.LocalConfig{}
+		}
+		if cfg.Source.Local.BasePath == "" {
+			cfg.Source.Local.BasePath = "/"
+		}
+
 	case config.StorageTypeGCS:
 		if cfg.Source.GCS == nil {
 			cfg.Source.GCS = &config.GCSConfig{}
@@ -230,6 +238,14 @@ func applyCliFlags(cfg *config.Config) {
 		}
 		if cfg.Destination.BlobStorage.AuthType == "" {
 			cfg.Destination.BlobStorage.AuthType = config.BlobAuthSharedKey
+		}
+
+	case config.StorageTypeLocal:
+		if cfg.Destination.Local == nil {
+			cfg.Destination.Local = &config.LocalConfig{}
+		}
+		if cfg.Destination.Local.BasePath == "" {
+			cfg.Destination.Local.BasePath = "/"
 		}
 
 	case config.StorageTypeGCS:
