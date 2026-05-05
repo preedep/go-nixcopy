@@ -61,20 +61,37 @@ nixcopy transfer -c config.yaml \
 |------|-------|-------------|---------|
 | `--source` | `-s` | Source file path or glob pattern. Supports `${ENV_VAR}` expansion. | `-s ${PWD}/data/file.zip` |
 | `--sources` | — | Multiple source paths (comma-separated). Each element is `${ENV_VAR}`-expanded. | `--sources "/a/*.csv,/b/*.csv"` |
-| `--dest` | `-d` | Destination path. Supports `${ENV_VAR}` expansion. | `-d ${OUTDIR}/file.zip` |
+| `--dest` | `-d` | Destination path. Supports `${ENV_VAR}` expansion. Trailing `/` = directory; source filename is appended automatically. | `-d /home/azureuser/data_file/` |
 
-nixcopy expands `${VAR}` (and `$VAR`) in `--source`, `--sources`, `--dest`, `--source-private-key`, `--dest-private-key`, `--source-credentials-file`, and `--dest-credentials-file` at runtime using `os.ExpandEnv`. Variables that are unset expand to an empty string.
+**Destination path rules:**
+
+| `--dest` value | Result |
+|---|---|
+| Ends with `/` — directory form | Source filename appended: `-d /backup/` with source `archive.zip` → `/backup/archive.zip` |
+| No trailing `/` — explicit filename | Used exactly as given: `-d /backup/archive.zip` → `/backup/archive.zip` |
+| Batch transfer (`--sources` or glob) | Each file always uses its own filename appended to the dest directory, regardless of trailing slash |
+
+nixcopy also expands `${VAR}` (and `$VAR`) in `--source`, `--sources`, `--dest`, `--source-private-key`, `--dest-private-key`, `--source-credentials-file`, and `--dest-credentials-file` at runtime using `os.ExpandEnv`. Variables that are unset expand to an empty string.
 
 ```bash
-# Use the current directory without shell quoting tricks
+# Trailing slash — source filename (archive.zip) is appended automatically
+nixcopy transfer --source-type local --dest-type sftp \
+  --dest-host sftp.example.com --dest-username azureuser \
+  --dest-private-key "${HOME}/.ssh/id_rsa" \
+  -s /cmdb/archive.zip -d /home/azureuser/data_file/
+# → writes to /home/azureuser/data_file/archive.zip
+
+# Explicit filename — used as-is
+nixcopy transfer --source-type local --dest-type sftp \
+  --dest-host sftp.example.com --dest-username azureuser \
+  --dest-private-key "${HOME}/.ssh/id_rsa" \
+  -s /cmdb/archive.zip -d /home/azureuser/data_file/archive.zip
+
+# ${ENV_VAR} expansion with trailing slash
 nixcopy transfer --source-type local --dest-type sftp \
   --dest-host sftp.example.com --dest-username user --dest-password pass \
-  -s "${PWD}/exports" -d "/remote/$(date +%Y%m%d)"
-
-# Reference a key file stored in a variable
-nixcopy transfer --source-type sftp --source-host sftp.example.com \
-  --source-username user --source-private-key "${SSH_KEY_DIR}/id_rsa" \
-  -s /data/file.txt --dest-type local -d /backup/
+  -s "${PWD}/exports/report.pdf" -d "${REMOTE_DIR}/"
+# → writes to ${REMOTE_DIR}/report.pdf
 ```
 
 ### 🔹 General Flags

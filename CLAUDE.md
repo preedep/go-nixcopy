@@ -109,7 +109,7 @@ cmd/nixcopy/main.go
 
 ### CLI (`internal/interfaces/cli/`)
 - `root.go` — global `--config` / `--verbose` flags; `--verbose` / `-v` sets the logger to `DEBUG` level, emitting resolved config, per-file queued paths, per-attempt error detail, and connection diagnostics
-- `transfer.go` — `transfer` subcommand; mirrors `TransferConfig` with ~50 source/dest flags; calls `expandTransferPaths()` before using `--source`, `--sources`, and `--dest` so scripts can pass `${PWD}` or other env vars in path arguments
+- `transfer.go` — `transfer` subcommand; mirrors `TransferConfig` with ~50 source/dest flags; calls `expandTransferPaths()` before using `--source`, `--sources`, and `--dest` so scripts can pass `${PWD}` or other env vars in path arguments; calls `resolveDestPath()` for single-file transfers — if `--dest` ends with `/` the source filename is appended automatically (same as Unix `cp file /dir/`)
 - `list.go` — `list` subcommand for browsing storage
 - `flags.go` — shared flag definitions and parsing helpers; `os.ExpandEnv` applied to all file-path flags (`--source-private-key`, `--dest-private-key`, `--source-credentials-file`, `--dest-credentials-file`) inside `applyCliFlags`
 

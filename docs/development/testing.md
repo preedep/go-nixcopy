@@ -116,6 +116,8 @@ internal/
 │                                      expandTransferPaths (--source, --sources slice, --dest, ${PWD})
 │   ├── ftps_tls_mode_test.go        — --source-tls-mode / --dest-tls-mode: explicit, implicit, empty-no-override,
 │                                      invalid mode rejected, env var path, CLI-over-env precedence
+│   ├── transfer_resolve_test.go     — resolveDestPath: trailing slash appends source filename, explicit path
+│   │                                  unchanged, empty dest, relative dest, nested source path (9 cases)
 │   ├── transfer_summary_test.go     — transferSummary JSON shape, omitempty, failed_files
 │   └── validate_format_test.go      — validateConfig all source/dest backend error paths, compression validation,
 │                                      formatSize boundary cases
@@ -126,6 +128,8 @@ internal/
     ├── transfer_usecase_branches_test.go — progressReader.Close (Closer/non-Closer), resume+compression warning,
     │                                  checksum skipped when resumed, checksum skipped when compressed,
     │                                  ReadFrom error exhausting retries
+    ├── transfer_usecase_destpath_test.go — dest path resolution integration: trailing-slash single file lands at
+    │                                  resolved path, explicit filename unchanged, batch multiple files each appended
     ├── transfer_usecase_skip_test.go — SkipExisting: 5 cases including batch
     ├── transfer_usecase_verbose_test.go — verbose/non-verbose log output: success emits "transfer attempt" DEBUG,
     │                                  failure emits per-attempt DEBUG + always-on ERROR; DEBUG absent at INFO level
