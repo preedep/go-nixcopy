@@ -498,6 +498,9 @@ func (t *TransferUseCase) TransferBatch(
 	destBasePath string,
 	progressChan chan<- entity.TransferProgress,
 ) ([]*entity.TransferResult, error) {
+	if progressChan != nil {
+		defer close(progressChan)
+	}
 	results := make([]*entity.TransferResult, len(sourcePaths))
 
 	// Semaphore pattern for concurrency control
