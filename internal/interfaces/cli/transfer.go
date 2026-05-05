@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -404,7 +406,8 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 
 	if len(filesToTransfer) == 1 {
 		// Single file transfer
-		result, err := transferUseCase.Transfer(ctx, filesToTransfer[0], destPath, progressChan)
+		resolvedDest := resolveDestPath(filesToTransfer[0], destPath)
+		result, err := transferUseCase.Transfer(ctx, filesToTransfer[0], resolvedDest, progressChan)
 		if err != nil {
 			return fmt.Errorf("transfer failed: %w", err)
 		}
@@ -475,6 +478,16 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// resolveDestPath returns the effective destination path for a single-file transfer.
+// If destPath ends with "/" it is treated as a directory and the source filename is
+// appended, mirroring Unix cp behaviour: cp file.txt /dir/ → /dir/file.txt.
+func resolveDestPath(srcPath, destPath string) string {
+	if strings.HasSuffix(destPath, "/") {
+		return destPath + filepath.Base(srcPath)
+	}
+	return destPath
 }
 
 // expandTransferPaths expands ${ENV_VAR} references in the path flags so users
