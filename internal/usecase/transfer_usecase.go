@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"sync"
 	"time"
 
 	applog "github.com/preedep/go-nixcopy/internal/infrastructure/logger"
@@ -498,8 +499,16 @@ func (t *TransferUseCase) TransferBatch(
 	destBasePath string,
 	progressChan chan<- entity.TransferProgress,
 ) ([]*entity.TransferResult, error) {
+	// forwardWg tracks the per-file progress-forwarding goroutines.
+	// We must wait for all of them to finish before closing progressChan,
+	// because they send to progressChan and a close while they're still
+	// running causes a panic.
+	var forwardWg sync.WaitGroup
 	if progressChan != nil {
-		defer close(progressChan)
+		defer func() {
+			forwardWg.Wait()
+			close(progressChan)
+		}()
 	}
 	results := make([]*entity.TransferResult, len(sourcePaths))
 
@@ -552,7 +561,9 @@ func (t *TransferUseCase) TransferBatch(
 			// Create per-file progress channel and forward to shared channel
 			// This multiplexes progress from multiple concurrent transfers
 			fileProgressChan := make(chan entity.TransferProgress, 10)
+			forwardWg.Add(1)
 			go func() {
+				defer forwardWg.Done()
 				// Forward all progress updates to the shared channel
 				for progress := range fileProgressChan {
 					if progressChan != nil {
