@@ -100,7 +100,9 @@ internal/
 │   ├── gcs_nil_client_test.go       — GCS nil-client guards: List/Read/Stat/Write/Delete; Disconnect/CreateDirectory no-ops
 │   ├── local_integration_test.go    — Local storage read/write/list (integration tag)
 │   ├── local_unit_test.go           — LocalStorage: Connect, Disconnect, List, Read, Write, Delete, Stat,
-│                                      CreateDirectory, ReadFrom (with offset), AppendWrite — no external deps
+│                                      CreateDirectory, ReadFrom (with offset), AppendWrite — no external deps;
+│                                      error paths: stat failure, io.Copy broken reader, MkdirAll blocked by file,
+│                                      permission errors (Connect stat/MkdirAll, Write Create — skipped as root)
 │   ├── s3_auth_test.go              — S3Storage.Connect auth error paths
 │   ├── s3_integration_test.go       — S3 read/write/list against MinIO (integration tag)
 │   ├── s3_multipart_test.go         — s3PartSizeFor: 5 size scenarios
@@ -110,8 +112,9 @@ internal/
 │   └── sftp_nil_client_test.go      — SFTP nil-client guards: List/Read/Stat/Write/Delete/CreateDirectory,
 │                                      ReadFrom/AppendWrite (Resumer), Disconnect no-op
 ├── interfaces/cli/
-│   ├── flags_test.go                — applyCliFlags (SFTP/FTPS/S3/Blob/local source+dest, private key, all transfer flags),
+│   ├── flags_test.go                — applyCliFlags (SFTP/FTPS/S3/Blob/GCS source+dest, private key, all transfer flags),
 │                                      validateConfig, --skip-existing, --resume, CLI-over-env precedence;
+│                                      GCS: project ID, impersonate SA, access token (source + dest);
 │                                      ${ENV_VAR} expansion: private key paths, credentials file paths,
 │                                      expandTransferPaths (--source, --sources slice, --dest, ${PWD})
 │   ├── ftps_tls_mode_test.go        — --source-tls-mode / --dest-tls-mode: explicit, implicit, empty-no-override,
@@ -119,8 +122,8 @@ internal/
 │   ├── transfer_resolve_test.go     — resolveDestPath: trailing slash appends source filename, explicit path
 │   │                                  unchanged, empty dest, relative dest, nested source path (9 cases)
 │   ├── transfer_summary_test.go     — transferSummary JSON shape, omitempty, failed_files
-│   └── validate_format_test.go      — validateConfig all source/dest backend error paths, compression validation,
-│                                      formatSize boundary cases
+│   └── validate_format_test.go      — validateConfig all source/dest backend error paths (SFTP/FTPS/S3/Blob/GCS),
+│                                      compression validation, formatSize boundary cases → validateConfig 100%
 └── usecase/
     ├── compress_test.go             — gzip/zstd round-trips, passthrough, ratio, invalid algo (6 tests)
     ├── pattern_matcher_test.go      — glob expansion, recursive **, no-match behaviour
@@ -307,8 +310,8 @@ LoadFromEnv(cfg)
 | `internal/infrastructure/config` | ~98% | YAML file loading, env var loading, all storage types and auth subtypes |
 | `internal/usecase` | ~92% | Core transfer logic, all feature paths including progressReader.Close and warning branches |
 | `internal/infrastructure/logger` | ~85% | All log methods, field helpers, child loggers, level filtering; `logger.go` Zap stub excluded (dead code) |
-| `internal/interfaces/cli` | ~58% | Flag wiring, validateConfig, TLS mode; `runTransfer`/`runList` require real storage |
-| `internal/infrastructure/storage` | ~49% | Local fully unit-tested; FTPS/Blob/S3/SFTP nil-client guards + auth paths; happy paths need integration tag |
+| `internal/interfaces/cli` | ~60% | Flag wiring, validateConfig (100%), TLS mode; `runTransfer`/`runList` require real storage |
+| `internal/infrastructure/storage` | ~53% | Local Connect/Write/CreateDirectory at 100%; FTPS/Blob/S3/SFTP nil-client guards + auth paths; happy paths need integration tag |
 
 Storage coverage in unit mode reflects the nil-client guard pattern — every backend's error paths are covered without credentials. Happy paths (List, Read, Write against real endpoints) are covered by integration tests (`-tags=integration`) against MinIO, SFTP, and FTPS containers (`make integration-test-local`).
 
