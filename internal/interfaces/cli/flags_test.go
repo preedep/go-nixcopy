@@ -167,22 +167,22 @@ func resetTransferFlags() {
 	destContainer = ""
 	destTLSMode = ""
 
-	sourceGCSProject      = ""
+	sourceGCSProject = ""
 	sourceCredentialsFile = ""
-	sourceImpersonateSA   = ""
-	sourceAccessToken     = ""
+	sourceImpersonateSA = ""
+	sourceAccessToken = ""
 
-	destGCSProject      = ""
+	destGCSProject = ""
 	destCredentialsFile = ""
-	destImpersonateSA   = ""
-	destAccessToken     = ""
+	destImpersonateSA = ""
+	destAccessToken = ""
 
-	bufferSize      = 0
+	bufferSize = 0
 	concurrentFiles = 0
-	retryAttempts   = 0
-	enableResume    = false
-	skipExisting    = false
-	compress        = ""
+	retryAttempts = 0
+	enableResume = false
+	skipExisting = false
+	compress = ""
 }
 
 func TestApplyCliFlags_SourceFTPS(t *testing.T) {
