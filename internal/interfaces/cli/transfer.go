@@ -255,6 +255,9 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
+	// Config is valid — suppress usage for all subsequent runtime errors.
+	cmd.SilenceUsage = true
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

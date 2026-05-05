@@ -43,6 +43,9 @@ func runList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config file: %w", err)
 	}
 
+	// Config loaded — suppress usage for all subsequent runtime errors.
+	cmd.SilenceUsage = true
+
 	appID := os.Getenv("NIXCOPY_APP_ID")
 	if appID == "" {
 		appID = "go-nixcopy"
