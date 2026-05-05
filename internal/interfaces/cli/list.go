@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	"github.com/preedep/go-nixcopy/internal/domain/repository"
 	"github.com/preedep/go-nixcopy/internal/infrastructure/config"
@@ -39,24 +38,30 @@ func runList(cmd *cobra.Command, args []string) error {
 		cfgFile = "config.yaml"
 	}
 
-	viper.SetConfigFile(cfgFile)
-	if err := viper.ReadInConfig(); err != nil {
-		return fmt.Errorf("failed to read config file: %w", err)
-	}
-
-	var cfg config.Config
-	if err := viper.Unmarshal(&cfg); err != nil {
-		return fmt.Errorf("failed to unmarshal config: %w", err)
+	cfg, err := config.LoadFile(cfgFile)
+	if err != nil {
+		return fmt.Errorf("failed to load config file: %w", err)
 	}
 
 	appID := os.Getenv("NIXCOPY_APP_ID")
 	if appID == "" {
 		appID = "go-nixcopy"
 	}
+	logLevel := logger.LogLevelInfo
+	if verbose {
+		logLevel = logger.LogLevelDebug
+	}
 	log := logger.NewStandardLogger(
 		logger.WithAppID(appID),
 		logger.WithAppVersion(os.Getenv("NIXCOPY_APP_VERSION")),
 		logger.WithPodName(os.Getenv("POD_NAME")),
+		logger.WithMinLevel(logLevel),
+	)
+
+	log.Debug("config loaded",
+		logger.F("config_file", cfgFile),
+		logger.F("source_type", string(cfg.Source.Type)),
+		logger.F("dest_type", string(cfg.Destination.Type)),
 	)
 
 	ctx := context.Background()
@@ -65,18 +70,21 @@ func runList(cmd *cobra.Command, args []string) error {
 
 	var storageSystem repository.Storage
 	var storageType string
-	var err error
 
 	if listSource {
-		storageSystem, err = storage.NewStorageFromSourceConfig(&cfg.Source)
+		var createErr error
+		storageSystem, createErr = storage.NewStorageFromSourceConfig(&cfg.Source)
+		if createErr != nil {
+			return fmt.Errorf("failed to create storage: %w", createErr)
+		}
 		storageType = string(cfg.Source.Type)
 	} else {
-		storageSystem, err = storage.NewStorageFromDestConfig(&cfg.Destination)
+		var createErr error
+		storageSystem, createErr = storage.NewStorageFromDestConfig(&cfg.Destination)
+		if createErr != nil {
+			return fmt.Errorf("failed to create storage: %w", createErr)
+		}
 		storageType = string(cfg.Destination.Type)
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to create storage: %w", err)
 	}
 
 	if err := storageSystem.Connect(ctx); err != nil {

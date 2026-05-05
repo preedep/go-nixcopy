@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/preedep/go-nixcopy/internal/infrastructure/config"
@@ -31,7 +32,7 @@ func applyCliFlags(cfg *config.Config) {
 			cfg.Source.SFTP.Password = sourcePassword
 		}
 		if sourcePrivateKey != "" {
-			cfg.Source.SFTP.PrivateKeyPath = sourcePrivateKey
+			cfg.Source.SFTP.PrivateKeyPath = os.ExpandEnv(sourcePrivateKey)
 		}
 		if cfg.Source.SFTP.Timeout == 0 {
 			cfg.Source.SFTP.Timeout = 30 * time.Second
@@ -120,7 +121,7 @@ func applyCliFlags(cfg *config.Config) {
 			cfg.Source.GCS.AuthType = config.GCSAuthType(sourceAuthType)
 		}
 		if sourceCredentialsFile != "" {
-			cfg.Source.GCS.CredentialsFile = sourceCredentialsFile
+			cfg.Source.GCS.CredentialsFile = os.ExpandEnv(sourceCredentialsFile)
 		}
 		if sourceImpersonateSA != "" {
 			cfg.Source.GCS.ImpersonateServiceAccount = sourceImpersonateSA
@@ -156,7 +157,7 @@ func applyCliFlags(cfg *config.Config) {
 			cfg.Destination.SFTP.Password = destPassword
 		}
 		if destPrivateKey != "" {
-			cfg.Destination.SFTP.PrivateKeyPath = destPrivateKey
+			cfg.Destination.SFTP.PrivateKeyPath = os.ExpandEnv(destPrivateKey)
 		}
 		if cfg.Destination.SFTP.Timeout == 0 {
 			cfg.Destination.SFTP.Timeout = 30 * time.Second
@@ -245,7 +246,7 @@ func applyCliFlags(cfg *config.Config) {
 			cfg.Destination.GCS.AuthType = config.GCSAuthType(destAuthType)
 		}
 		if destCredentialsFile != "" {
-			cfg.Destination.GCS.CredentialsFile = destCredentialsFile
+			cfg.Destination.GCS.CredentialsFile = os.ExpandEnv(destCredentialsFile)
 		}
 		if destImpersonateSA != "" {
 			cfg.Destination.GCS.ImpersonateServiceAccount = destImpersonateSA

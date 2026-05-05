@@ -14,6 +14,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.42.0
 	github.com/jlaffaye/ftp v0.2.0
 	github.com/klauspost/compress v1.18.5
+	github.com/mitchellh/mapstructure v1.5.0
 	github.com/pkg/sftp v1.13.6
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/viper v1.18.2
@@ -71,7 +72,6 @@ require (
 	github.com/kr/fs v0.1.0 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
-	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.1.0 // indirect
 	github.com/pkg/browser v0.0.0-20210911075715-681adbf594b8 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect

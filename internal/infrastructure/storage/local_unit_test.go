@@ -442,3 +442,143 @@ func TestLocalStorage_AppendWrite_NonexistentFile(t *testing.T) {
 		t.Fatal("expected error for nonexistent file")
 	}
 }
+
+// ---- Additional error-path coverage ----
+
+// errReader always returns an error on Read, used to trigger io.Copy failures.
+type errReader struct{ err error }
+
+func (r *errReader) Read(_ []byte) (int, error) { return 0, r.err }
+
+func TestLocalStorage_ReadFrom_NonexistentFile(t *testing.T) {
+	s := newLocal(t, t.TempDir())
+	resumer, ok := s.(interface {
+		ReadFrom(context.Context, string, int64) (io.ReadCloser, int64, error)
+	})
+	if !ok {
+		t.Skip("LocalStorage does not implement Resumer")
+	}
+	_, _, err := resumer.ReadFrom(ctx(), "nonexistent.txt", 0)
+	if err == nil {
+		t.Fatal("expected error for nonexistent file")
+	}
+}
+
+func TestLocalStorage_Write_CopyFailure(t *testing.T) {
+	base := t.TempDir()
+	s := newLocal(t, base)
+	broken := &errReader{err: io.ErrUnexpectedEOF}
+	err := s.Write(ctx(), "out.txt", broken, 10)
+	if err == nil {
+		t.Fatal("expected error when reader returns error during copy")
+	}
+}
+
+func TestLocalStorage_AppendWrite_CopyFailure(t *testing.T) {
+	base := t.TempDir()
+	path := filepath.Join(base, "target.txt")
+	if err := os.WriteFile(path, []byte("initial"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	s := newLocal(t, base)
+	resumer, ok := s.(interface {
+		AppendWrite(context.Context, string, io.Reader, int64, int64) error
+	})
+	if !ok {
+		t.Skip("LocalStorage does not implement Resumer")
+	}
+	broken := &errReader{err: io.ErrUnexpectedEOF}
+	err := resumer.AppendWrite(ctx(), "target.txt", broken, 5, 0)
+	if err == nil {
+		t.Fatal("expected error when reader returns error during append copy")
+	}
+}
+
+func TestLocalStorage_CreateDirectory_FileBlocksDir(t *testing.T) {
+	base := t.TempDir()
+	// Create a regular file named "blocked" — MkdirAll("blocked/child") must fail.
+	if err := os.WriteFile(filepath.Join(base, "blocked"), []byte("I am a file"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	s := newLocal(t, base)
+	err := s.CreateDirectory(ctx(), "blocked/child")
+	if err == nil {
+		t.Fatal("expected error: cannot create directory when file exists at path component")
+	}
+}
+
+func TestLocalStorage_Write_MkdirAll_FileBlocksDir(t *testing.T) {
+	base := t.TempDir()
+	// A file at "subdir" prevents MkdirAll("subdir/nested") from succeeding.
+	if err := os.WriteFile(filepath.Join(base, "subdir"), []byte("file"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	s := newLocal(t, base)
+	err := s.Write(ctx(), "subdir/nested/out.txt", bytes.NewReader([]byte("data")), 4)
+	if err == nil {
+		t.Fatal("expected error: MkdirAll must fail when file blocks directory path")
+	}
+}
+
+// ---- Permission-based error paths (skipped when running as root) ----
+
+func TestLocalStorage_Connect_StatPermissionDenied(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root bypasses permission checks")
+	}
+	parent := t.TempDir()
+	restricted := filepath.Join(parent, "restricted")
+	if err := os.MkdirAll(restricted, 0000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(restricted, 0755) })
+
+	// Stat on a path inside a 0000 dir returns EACCES (not ENOENT).
+	s, err := storage.NewLocalStorage(&config.LocalConfig{BasePath: filepath.Join(restricted, "target")})
+	if err != nil {
+		t.Fatalf("NewLocalStorage: %v", err)
+	}
+	if err := s.Connect(ctx()); err == nil {
+		t.Fatal("expected permission error from Connect")
+	}
+}
+
+func TestLocalStorage_Connect_MkdirAll_Failure(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root bypasses permission checks")
+	}
+	parent := t.TempDir()
+	readonly := filepath.Join(parent, "readonly")
+	if err := os.MkdirAll(readonly, 0555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(readonly, 0755) })
+
+	// Path does not exist (ENOENT) → MkdirAll tries to create it → EACCES.
+	s, err := storage.NewLocalStorage(&config.LocalConfig{BasePath: filepath.Join(readonly, "newdir")})
+	if err != nil {
+		t.Fatalf("NewLocalStorage: %v", err)
+	}
+	if err := s.Connect(ctx()); err == nil {
+		t.Fatal("expected error: MkdirAll must fail inside read-only parent")
+	}
+}
+
+func TestLocalStorage_Write_CreateFailure(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root bypasses permission checks")
+	}
+	base := t.TempDir()
+	readonly := filepath.Join(base, "ro")
+	if err := os.MkdirAll(readonly, 0555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(readonly, 0755) })
+
+	s := newLocal(t, base)
+	// MkdirAll("ro") succeeds (dir exists), but os.Create("ro/file.txt") → EACCES.
+	err := s.Write(ctx(), "ro/file.txt", bytes.NewReader([]byte("x")), 1)
+	if err == nil {
+		t.Fatal("expected error: cannot create file in read-only directory")
+	}
+}

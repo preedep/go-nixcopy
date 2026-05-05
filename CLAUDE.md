@@ -105,13 +105,13 @@ cmd/nixcopy/main.go
 ### Infrastructure (`internal/infrastructure/`)
 - **storage/** — factory + one file per backend: `local.go`, `sftp.go`, `ftps.go`, `blob.go` (Azure), `s3.go` (AWS), `gcs.go` (GCP)
 - **config/** — YAML/JSON loader with `${ENV_VAR}` expansion; precedence: CLI flags > env vars > config file > defaults
-- **logger/** — `StandardLogger` in `applog.go` emits one JSON line per call conforming to [standard-app-log v1.0](https://github.com/preedep/standard-app-log). Log types: `APP_LOG`, `REQ_EX_LOG`, `RES_EX_LOG`. Use `NewNopLogger()` in tests (replaces `zap.NewNop()`). Zap is still in `logger.go` as a dead stub; the CLI no longer calls it. Context injection at startup: `NIXCOPY_CORRELATION_ID`, `NIXCOPY_APP_ID`, `NIXCOPY_APP_VERSION`, `POD_NAME` env vars.
+- **logger/** — `StandardLogger` in `applog.go` emits one JSON line per call conforming to [standard-app-log v1.0](https://github.com/preedep/standard-app-log). Log types: `APP_LOG`, `REQ_EX_LOG`, `RES_EX_LOG`. Default minimum level is `INFO`; set `WithMinLevel(LogLevelDebug)` to emit `DEBUG` entries. The CLI wires `--verbose` / `-v` to `WithMinLevel(LogLevelDebug)` automatically. Use `NewNopLogger()` in tests (replaces `zap.NewNop()`). Zap is still in `logger.go` as a dead stub; the CLI no longer calls it. Context injection at startup: `NIXCOPY_CORRELATION_ID`, `NIXCOPY_APP_ID`, `NIXCOPY_APP_VERSION`, `POD_NAME` env vars.
 
 ### CLI (`internal/interfaces/cli/`)
-- `root.go` — global `--config` / `--verbose` flags
-- `transfer.go` — `transfer` subcommand; mirrors `TransferConfig` with ~50 source/dest flags
+- `root.go` — global `--config` / `--verbose` flags; `--verbose` / `-v` sets the logger to `DEBUG` level, emitting resolved config, per-file queued paths, per-attempt error detail, and connection diagnostics
+- `transfer.go` — `transfer` subcommand; mirrors `TransferConfig` with ~50 source/dest flags; calls `expandTransferPaths()` before using `--source`, `--sources`, and `--dest` so scripts can pass `${PWD}` or other env vars in path arguments; calls `resolveDestPath()` for single-file transfers — if `--dest` ends with `/` the source filename is appended automatically (same as Unix `cp file /dir/`)
 - `list.go` — `list` subcommand for browsing storage
-- `flags.go` — shared flag definitions and parsing helpers
+- `flags.go` — shared flag definitions and parsing helpers; `os.ExpandEnv` applied to all file-path flags (`--source-private-key`, `--dest-private-key`, `--source-credentials-file`, `--dest-credentials-file`) inside `applyCliFlags`
 
 **Flag description convention**: every flag that has a corresponding `NIXCOPY_*` env var must include `(env: NIXCOPY_VAR)` at the end of its description string. The canonical mapping is in `internal/infrastructure/config/envloader.go`.
 

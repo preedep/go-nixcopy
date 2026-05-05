@@ -210,6 +210,12 @@ func (t *TransferUseCase) Transfer(
 			)
 			time.Sleep(t.config.RetryDelay)
 		}
+		t.logger.Debug("transfer attempt",
+			applog.F("attempt", attempt+1),
+			applog.F("max_attempts", t.config.RetryAttempts+1),
+			applog.F("source", sourcePath),
+			applog.F("destination", destPath),
+		)
 
 		// Check destination for a partial file and compute resume offset.
 		// Re-evaluated every attempt so each retry picks up where the last one left off.
@@ -237,6 +243,11 @@ func (t *TransferUseCase) Transfer(
 		}
 		if err != nil {
 			lastErr = fmt.Errorf("failed to read source file: %w", err)
+			t.logger.Debug("attempt failed",
+				applog.F("attempt", attempt+1),
+				applog.F("source", sourcePath),
+				applog.FError(lastErr),
+			)
 			continue
 		}
 
@@ -325,6 +336,11 @@ func (t *TransferUseCase) Transfer(
 
 		if err != nil {
 			lastErr = fmt.Errorf("failed to write destination file: %w", err)
+			t.logger.Debug("attempt failed",
+				applog.F("attempt", attempt+1),
+				applog.F("source", sourcePath),
+				applog.FError(lastErr),
+			)
 			continue
 		}
 
@@ -335,6 +351,11 @@ func (t *TransferUseCase) Transfer(
 			destReader, _, err := t.dest.Read(ctx, destPath)
 			if err != nil {
 				lastErr = fmt.Errorf("checksum verification: failed to read destination: %w", err)
+				t.logger.Debug("attempt failed",
+					applog.F("attempt", attempt+1),
+					applog.F("source", sourcePath),
+					applog.FError(lastErr),
+				)
 				continue
 			}
 			h := sha256.New()
@@ -342,6 +363,11 @@ func (t *TransferUseCase) Transfer(
 			_ = destReader.Close()
 			if hashErr != nil {
 				lastErr = fmt.Errorf("checksum verification: failed to hash destination: %w", hashErr)
+				t.logger.Debug("attempt failed",
+					applog.F("attempt", attempt+1),
+					applog.F("source", sourcePath),
+					applog.FError(lastErr),
+				)
 				continue
 			}
 			destChecksum := hex.EncodeToString(h.Sum(nil))
@@ -392,6 +418,13 @@ func (t *TransferUseCase) Transfer(
 	result.Status = entity.TransferStatusFailed
 	result.Error = lastErr
 	result.Duration = time.Since(startTime)
+
+	t.logger.ErrorReqEx("Transfer failed after all attempts",
+		applog.F("attempts", t.config.RetryAttempts+1),
+		applog.F("source", sourcePath),
+		applog.F("destination", destPath),
+		applog.FError(lastErr),
+	)
 
 	if progressChan != nil {
 		progressChan <- entity.TransferProgress{
