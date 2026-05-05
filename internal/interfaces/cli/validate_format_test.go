@@ -139,6 +139,29 @@ func TestValidateConfig_Blob_MissingContainerName(t *testing.T) {
 	}
 }
 
+func TestValidateConfig_GCS_NilConfig(t *testing.T) {
+	cfg := &config.Config{
+		Source: config.SourceConfig{Type: config.StorageTypeGCS},
+	}
+	err := validateConfig(cfg)
+	if err == nil || err.Error() != "GCS source configuration is required" {
+		t.Errorf("err = %v, want GCS source configuration is required", err)
+	}
+}
+
+func TestValidateConfig_GCS_MissingBucket(t *testing.T) {
+	cfg := &config.Config{
+		Source: config.SourceConfig{
+			Type: config.StorageTypeGCS,
+			GCS:  &config.GCSConfig{ProjectID: "my-project"},
+		},
+	}
+	err := validateConfig(cfg)
+	if err == nil || err.Error() != "source GCS bucket is required" {
+		t.Errorf("err = %v, want source GCS bucket is required", err)
+	}
+}
+
 // ---- validateConfig: destination backends ----
 
 func validSource() config.SourceConfig {
@@ -287,6 +310,31 @@ func TestValidateConfig_Dest_Blob_MissingContainerName(t *testing.T) {
 	err := validateConfig(cfg)
 	if err == nil || err.Error() != "destination Blob Storage container name is required" {
 		t.Errorf("err = %v, want destination Blob Storage container name is required", err)
+	}
+}
+
+func TestValidateConfig_Dest_GCS_NilConfig(t *testing.T) {
+	cfg := &config.Config{
+		Source:      validSource(),
+		Destination: config.DestinationConfig{Type: config.StorageTypeGCS},
+	}
+	err := validateConfig(cfg)
+	if err == nil || err.Error() != "GCS destination configuration is required" {
+		t.Errorf("err = %v, want GCS destination configuration is required", err)
+	}
+}
+
+func TestValidateConfig_Dest_GCS_MissingBucket(t *testing.T) {
+	cfg := &config.Config{
+		Source: validSource(),
+		Destination: config.DestinationConfig{
+			Type: config.StorageTypeGCS,
+			GCS:  &config.GCSConfig{ProjectID: "my-project"},
+		},
+	}
+	err := validateConfig(cfg)
+	if err == nil || err.Error() != "destination GCS bucket is required" {
+		t.Errorf("err = %v, want destination GCS bucket is required", err)
 	}
 }
 

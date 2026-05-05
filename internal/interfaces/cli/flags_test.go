@@ -167,12 +167,22 @@ func resetTransferFlags() {
 	destContainer = ""
 	destTLSMode = ""
 
-	bufferSize = 0
+	sourceGCSProject      = ""
+	sourceCredentialsFile = ""
+	sourceImpersonateSA   = ""
+	sourceAccessToken     = ""
+
+	destGCSProject      = ""
+	destCredentialsFile = ""
+	destImpersonateSA   = ""
+	destAccessToken     = ""
+
+	bufferSize      = 0
 	concurrentFiles = 0
-	retryAttempts = 0
-	enableResume = false
-	skipExisting = false
-	compress = ""
+	retryAttempts   = 0
+	enableResume    = false
+	skipExisting    = false
+	compress        = ""
 }
 
 func TestApplyCliFlags_SourceFTPS(t *testing.T) {
@@ -750,6 +760,112 @@ func TestExpandTransferPaths_DestPath(t *testing.T) {
 	want := "/mnt/output/result"
 	if destPath != want {
 		t.Errorf("destPath = %q, want %q", destPath, want)
+	}
+}
+
+// ---- GCS impersonate / access-token flags ----
+
+func TestApplyCliFlags_SourceGCS_ProjectID(t *testing.T) {
+	resetTransferFlags()
+	sourceType = "gcs"
+	sourceBucket = "src-bucket"
+	sourceGCSProject = "my-gcp-project"
+
+	cfg := config.DefaultConfig()
+	applyCliFlags(cfg)
+
+	if cfg.Source.GCS == nil {
+		t.Fatal("Source.GCS is nil")
+	}
+	if cfg.Source.GCS.ProjectID != "my-gcp-project" {
+		t.Errorf("ProjectID = %q, want my-gcp-project", cfg.Source.GCS.ProjectID)
+	}
+}
+
+func TestApplyCliFlags_DestGCS_ProjectID(t *testing.T) {
+	resetTransferFlags()
+	destType = "gcs"
+	destBucket = "dest-bucket"
+	destGCSProject = "dest-gcp-project"
+
+	cfg := config.DefaultConfig()
+	applyCliFlags(cfg)
+
+	if cfg.Destination.GCS == nil {
+		t.Fatal("Destination.GCS is nil")
+	}
+	if cfg.Destination.GCS.ProjectID != "dest-gcp-project" {
+		t.Errorf("ProjectID = %q, want dest-gcp-project", cfg.Destination.GCS.ProjectID)
+	}
+}
+
+func TestApplyCliFlags_SourceGCS_ImpersonateSA(t *testing.T) {
+	resetTransferFlags()
+	sourceType = "gcs"
+	sourceBucket = "src-bucket"
+	sourceImpersonateSA = "sa@project.iam.gserviceaccount.com"
+
+	cfg := config.DefaultConfig()
+	applyCliFlags(cfg)
+
+	if cfg.Source.GCS == nil {
+		t.Fatal("Source.GCS is nil")
+	}
+	if cfg.Source.GCS.ImpersonateServiceAccount != "sa@project.iam.gserviceaccount.com" {
+		t.Errorf("ImpersonateServiceAccount = %q, want sa@project.iam.gserviceaccount.com",
+			cfg.Source.GCS.ImpersonateServiceAccount)
+	}
+}
+
+func TestApplyCliFlags_SourceGCS_AccessToken(t *testing.T) {
+	resetTransferFlags()
+	sourceType = "gcs"
+	sourceBucket = "src-bucket"
+	sourceAccessToken = "ya29.token-abc"
+
+	cfg := config.DefaultConfig()
+	applyCliFlags(cfg)
+
+	if cfg.Source.GCS == nil {
+		t.Fatal("Source.GCS is nil")
+	}
+	if cfg.Source.GCS.AccessToken != "ya29.token-abc" {
+		t.Errorf("AccessToken = %q, want ya29.token-abc", cfg.Source.GCS.AccessToken)
+	}
+}
+
+func TestApplyCliFlags_DestGCS_ImpersonateSA(t *testing.T) {
+	resetTransferFlags()
+	destType = "gcs"
+	destBucket = "dest-bucket"
+	destImpersonateSA = "dest-sa@project.iam.gserviceaccount.com"
+
+	cfg := config.DefaultConfig()
+	applyCliFlags(cfg)
+
+	if cfg.Destination.GCS == nil {
+		t.Fatal("Destination.GCS is nil")
+	}
+	if cfg.Destination.GCS.ImpersonateServiceAccount != "dest-sa@project.iam.gserviceaccount.com" {
+		t.Errorf("ImpersonateServiceAccount = %q, want dest-sa@project.iam.gserviceaccount.com",
+			cfg.Destination.GCS.ImpersonateServiceAccount)
+	}
+}
+
+func TestApplyCliFlags_DestGCS_AccessToken(t *testing.T) {
+	resetTransferFlags()
+	destType = "gcs"
+	destBucket = "dest-bucket"
+	destAccessToken = "ya29.dest-token-xyz"
+
+	cfg := config.DefaultConfig()
+	applyCliFlags(cfg)
+
+	if cfg.Destination.GCS == nil {
+		t.Fatal("Destination.GCS is nil")
+	}
+	if cfg.Destination.GCS.AccessToken != "ya29.dest-token-xyz" {
+		t.Errorf("AccessToken = %q, want ya29.dest-token-xyz", cfg.Destination.GCS.AccessToken)
 	}
 }
 
