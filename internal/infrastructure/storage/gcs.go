@@ -88,8 +88,8 @@ func (g *GCSStorage) Connect(ctx context.Context) error {
 				option.WithoutAuthentication(),
 				option.WithHTTPClient(&http.Client{
 					Transport: &gcsEmulatorTransport{
-						base: http.DefaultTransport,
-						host: emulatorURL.Host,
+						base:   http.DefaultTransport,
+						host:   emulatorURL.Host,
 						scheme: emulatorURL.Scheme,
 					},
 				}),
