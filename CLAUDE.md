@@ -51,6 +51,7 @@ make integration-test-down    # tear down containers without running tests
 bash examples/shellscript/01-local-to-local.sh            # local copy, no credentials needed
 bash examples/shellscript/10-advanced-options.sh          # resume, skip-existing, bandwidth limit
 bash examples/shellscript/11-s3-to-blob.sh                # S3 ↔ Azure Blob (set env vars first)
+bash examples/shellscript/12-performance-tuning.sh        # buffer size, concurrency, upload-concurrency tuning
 
 # Clean
 make clean              # build artifacts (bin/)
@@ -106,12 +107,12 @@ cmd/nixcopy/main.go
 - **service/** — `TransferService` interface
 
 ### Use Case (`internal/usecase/`)
-- `transfer_usecase.go` — single-file and batch transfer; semaphore-based concurrency, non-blocking progress channel updates, configurable retry with backoff; SHA-256 checksum verification; resume from partial destination files
+- `transfer_usecase.go` — single-file and batch transfer; decomposed into `Transfer` (orchestrator), `runWithRetry` (retry loop), `attemptTransfer` (single attempt), `buildPipeline` (I/O wiring); semaphore-based concurrency; SHA-256 checksum verification; resume from partial destination files; `transferBufPool` (256 KiB `sync.Pool`) used in the compression pipeline goroutine
 - `pattern_matcher.go` — expands glob patterns (`*.pdf`, `**/*.log`) by calling `Storage.List` recursively
 - `mocks/storage_mock.go` — `MockStorage` satisfies the `Storage` and `Resumer` interfaces; used in all unit tests
 
 ### Infrastructure (`internal/infrastructure/`)
-- **storage/** — factory + one file per backend: `local.go`, `sftp.go`, `ftps.go`, `blob.go` (Azure), `s3.go` (AWS), `gcs.go` (GCP)
+- **storage/** — factory + one file per backend: `local.go`, `sftp.go`, `ftps.go`, `blob.go` (Azure), `s3.go` (AWS), `gcs.go` (GCP); `pool.go` provides a package-level 256 KiB `sync.Pool` used by `local.go` and `sftp.go` via `io.CopyBuffer` to eliminate per-transfer heap allocations
 - **config/** — YAML/JSON loader with `${ENV_VAR}` expansion; precedence: CLI flags > env vars > config file > defaults
 - **logger/** — `StandardLogger` in `applog.go` emits one JSON line per call conforming to [standard-app-log v1.0](https://github.com/preedep/standard-app-log). Log types: `APP_LOG`, `REQ_EX_LOG`, `RES_EX_LOG`. Default minimum level is `INFO`; set `WithMinLevel(LogLevelDebug)` to emit `DEBUG` entries. The CLI wires `--verbose` / `-v` to `WithMinLevel(LogLevelDebug)` automatically. Use `NewNopLogger()` in tests (replaces `zap.NewNop()`). Zap is still in `logger.go` as a dead stub; the CLI no longer calls it. Context injection at startup: `NIXCOPY_CORRELATION_ID`, `NIXCOPY_APP_ID`, `NIXCOPY_APP_VERSION`, `POD_NAME` env vars.
 
@@ -151,6 +152,8 @@ Follow these three steps (see [CONTRIBUTING.md](docs/development/contributing.md
 Then write unit tests using `MockStorage` as a reference and add an entry to `examples/` (YAML config) and `examples/shellscript/` (shell script).
 
 **Optionally** implement `repository.Resumer` (`ReadFrom` + `AppendWrite`) to enable `--resume` support. The use case detects this via type assertion at runtime — backends that don't implement it fall back to full re-transfer silently.
+
+**For backends with multipart/block upload** (like S3 and Blob): add an `UploadConcurrency int` field to the backend's config struct and honour it in `Write`. Wire it from `--upload-concurrency` CLI flag via `applyCliFlags` in `flags.go`. Use the package-level `copyBufPool` from `storage/pool.go` in `Write` and `AppendWrite` instead of plain `io.Copy`.
 
 ---
 
@@ -208,15 +211,22 @@ For detailed setup steps, cross-account and Kubernetes scenarios, see [AUTHENTIC
 
 ## Performance Tuning
 
-Memory is bounded by `bufferSize × concurrentFiles`. Tune together:
+Memory is bounded by `bufferSize × concurrentFiles`. Tune all three levers together:
 
-| File size | `buffer_size` | `concurrent_files` |
-|---|---|---|
-| < 10 MB | 8–16 MB | 8–16 |
-| 10–100 MB | 32–64 MB | 4–8 |
-| > 100 MB | 64–128 MB | 2–4 |
+| File size | `--buffer-size` | `--concurrent-files` | `--upload-concurrency` |
+|---|---|---|---|
+| < 10 MB | 4–8 MB | 8–16 | 5 (default) |
+| 10–100 MB | 32–64 MB | 4–8 | 5–8 |
+| > 100 MB | 64–128 MB | 2–4 | 8–10 |
 
-On an unstable network, increase `--retry-attempts` before increasing concurrency. (`--retry-delay` is config-file / `NIXCOPY_RETRY_DELAY` env var only — no CLI flag.)
+- **`--upload-concurrency`** controls how many parts are uploaded in parallel *within a single file* for S3 and Azure Blob. Has no effect on local or SFTP. Default is 5; raise to 8–10 on high-bandwidth links for large files.
+- **`--buffer-size`** is in bytes: `4194304` = 4 MB, `33554432` = 32 MB, `134217728` = 128 MB.
+- On an unstable network, increase `--retry-attempts` before increasing concurrency.
+- `--retry-delay` is config-file / `NIXCOPY_RETRY_DELAY` env var only — no CLI flag.
+
+**Implementation note:** local and SFTP backends use a shared `sync.Pool` of 256 KiB buffers (`storage/pool.go`) via `io.CopyBuffer`, eliminating per-transfer heap allocations. The compression pipeline goroutine uses a separate pool (`transferBufPool` in `transfer_usecase.go`).
+
+See `examples/shellscript/12-performance-tuning.sh` for ready-to-run tuning examples.
 
 ---
 
@@ -285,13 +295,21 @@ Integration test files live alongside unit tests, gated by `-tags=integration`. 
 
 ### Benchmarks
 
-Benchmarks cover local transfer (1 MB–128 MB), batch concurrency, pattern matching, and SHA-256 checksum throughput. No credentials or build tags required.
+Benchmarks cover local transfer (1 MB–128 MB), batch concurrency, buffer pool throughput, pattern matching, and SHA-256 checksum throughput. No credentials or build tags required.
 
 ```bash
-go test -bench=. -benchmem ./internal/usecase/
+go test -bench=. -benchmem ./internal/usecase/           # transfer + batch + buffer pool benchmarks
+go test -bench=. -benchmem ./internal/infrastructure/storage/  # (future storage-level benchmarks)
 ```
 
 Run results are machine-specific — do not commit numbers to docs. Use the benchmarks to validate tuning changes locally.
+
+| Benchmark | What it measures |
+|---|---|
+| `BenchmarkTransfer` | Single-file local transfer at 1 MB / 16 MB / 128 MB |
+| `BenchmarkTransfer_WithChecksum` | SHA-256 overhead vs baseline |
+| `BenchmarkTransferBatch` | Batch throughput at concurrency 1 / 4 / 8 |
+| `BenchmarkTransfer_BufferPool` | Buffer pool path at 1 MB / 16 MB / 64 MB |
 
 ---
 
