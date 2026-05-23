@@ -175,7 +175,9 @@ func (s *SFTPStorage) Write(ctx context.Context, path string, reader io.Reader, 
 	}
 	defer file.Close()
 
-	_, err = io.Copy(file, reader)
+	buf := getCopyBuf()
+	defer putCopyBuf(buf)
+	_, err = io.CopyBuffer(file, reader, buf)
 	if err != nil {
 		return fmt.Errorf("failed to write file: %w", err)
 	}
@@ -226,7 +228,9 @@ func (s *SFTPStorage) AppendWrite(ctx context.Context, path string, reader io.Re
 		return fmt.Errorf("failed to seek to offset %d: %w", offset, err)
 	}
 
-	if _, err := io.Copy(file, reader); err != nil {
+	buf := getCopyBuf()
+	defer putCopyBuf(buf)
+	if _, err := io.CopyBuffer(file, reader, buf); err != nil {
 		return fmt.Errorf("failed to write resumed content: %w", err)
 	}
 

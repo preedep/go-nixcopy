@@ -20,6 +20,15 @@ import (
 	"github.com/preedep/go-nixcopy/internal/domain/service"
 )
 
+// transferBufPool pools 256 KiB buffers for io.CopyBuffer in the compression pipeline.
+// This avoids a per-transfer heap allocation and reduces GC pressure during batch transfers.
+var transferBufPool = sync.Pool{
+	New: func() any {
+		buf := make([]byte, 256*1024)
+		return &buf
+	},
+}
+
 // TransferUseCase implements the core file transfer business logic.
 // It handles single and batch file transfers with the following features:
 //   - Streaming I/O to minimize memory usage (only bufferSize bytes in memory at a time)
@@ -446,7 +455,9 @@ func (t *TransferUseCase) buildPipeline(
 				errCh <- cerr
 				return
 			}
-			_, cerr = io.Copy(cw, pr)
+			buf := transferBufPool.Get().(*[]byte)
+			_, cerr = io.CopyBuffer(cw, pr, *buf)
+			transferBufPool.Put(buf)
 			if closeErr := cw.Close(); cerr == nil {
 				cerr = closeErr
 			}

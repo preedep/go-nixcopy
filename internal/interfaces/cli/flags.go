@@ -86,6 +86,9 @@ func applyCliFlags(cfg *config.Config) {
 		if cfg.Source.S3.AuthType == "" {
 			cfg.Source.S3.AuthType = config.S3AuthAccessKey
 		}
+		if uploadConcurrency > 0 {
+			cfg.Source.S3.UploadConcurrency = uploadConcurrency
+		}
 
 	case config.StorageTypeBlobStorage:
 		if cfg.Source.BlobStorage == nil {
@@ -105,6 +108,9 @@ func applyCliFlags(cfg *config.Config) {
 		}
 		if cfg.Source.BlobStorage.AuthType == "" {
 			cfg.Source.BlobStorage.AuthType = config.BlobAuthSharedKey
+		}
+		if uploadConcurrency > 0 {
+			cfg.Source.BlobStorage.UploadConcurrency = uploadConcurrency
 		}
 
 	case config.StorageTypeLocal:
@@ -219,6 +225,9 @@ func applyCliFlags(cfg *config.Config) {
 		if cfg.Destination.S3.AuthType == "" {
 			cfg.Destination.S3.AuthType = config.S3AuthAccessKey
 		}
+		if uploadConcurrency > 0 {
+			cfg.Destination.S3.UploadConcurrency = uploadConcurrency
+		}
 
 	case config.StorageTypeBlobStorage:
 		if cfg.Destination.BlobStorage == nil {
@@ -238,6 +247,9 @@ func applyCliFlags(cfg *config.Config) {
 		}
 		if cfg.Destination.BlobStorage.AuthType == "" {
 			cfg.Destination.BlobStorage.AuthType = config.BlobAuthSharedKey
+		}
+		if uploadConcurrency > 0 {
+			cfg.Destination.BlobStorage.UploadConcurrency = uploadConcurrency
 		}
 
 	case config.StorageTypeLocal:

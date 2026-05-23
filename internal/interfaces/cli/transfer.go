@@ -90,13 +90,14 @@ var (
 	destAccessToken     string
 
 	// Transfer flags
-	bufferSize      int
-	concurrentFiles int
-	retryAttempts   int
-	enableResume    bool
-	skipExisting    bool
-	bandwidthLimit  string
-	compress        string
+	bufferSize        int
+	concurrentFiles   int
+	retryAttempts     int
+	enableResume      bool
+	skipExisting      bool
+	bandwidthLimit    string
+	compress          string
+	uploadConcurrency int
 )
 
 // storageFactory abstracts storage construction so tests can inject fakes.
@@ -237,6 +238,7 @@ func init() {
 	transferCmd.Flags().BoolVar(&skipExisting, "skip-existing", false, "Skip transfer if destination already has a file with the same size (idempotent retries) (env: NIXCOPY_SKIP_EXISTING)")
 	transferCmd.Flags().StringVar(&bandwidthLimit, "bandwidth-limit", "", "Max bandwidth per file (e.g. 10MB, 1GB, 512KB); 0 or empty = unlimited (env: NIXCOPY_BANDWIDTH_LIMIT)")
 	transferCmd.Flags().StringVar(&compress, "compress", "", "Compress data stream before writing (gzip or zstd); empty = no compression (env: NIXCOPY_COMPRESSION)")
+	transferCmd.Flags().IntVar(&uploadConcurrency, "upload-concurrency", 0, "Concurrent part uploads per file for S3/Blob (env: NIXCOPY_UPLOAD_CONCURRENCY)")
 }
 
 func runTransfer(cmd *cobra.Command, args []string) error {

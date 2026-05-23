@@ -582,3 +582,60 @@ func TestLocalStorage_Write_CreateFailure(t *testing.T) {
 		t.Fatal("expected error: cannot create file in read-only directory")
 	}
 }
+
+// ---- Buffered copy path (pool.go) ----
+
+// TestLocalStorage_Write_UsesBufferedCopy writes a 1 MB file and reads it back,
+// verifying that the io.CopyBuffer path (via getCopyBuf) produces correct output.
+func TestLocalStorage_Write_UsesBufferedCopy(t *testing.T) {
+	base := t.TempDir()
+	s := newLocal(t, base)
+
+	const size = 1 << 20 // 1 MB
+	content := make([]byte, size)
+	for i := range content {
+		content[i] = byte(i % 251)
+	}
+
+	if err := s.Write(ctx(), "buffered.bin", bytes.NewReader(content), int64(size)); err != nil {
+		t.Fatalf("Write 1 MB: %v", err)
+	}
+
+	rc, gotSize, err := s.Read(ctx(), "buffered.bin")
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	defer rc.Close()
+
+	if gotSize != int64(size) {
+		t.Errorf("Read size = %d, want %d", gotSize, size)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Error("content mismatch after buffered write")
+	}
+}
+
+// TestLocalStorage_Write_LargeFile writes an 8 MB file and verifies the size on disk.
+func TestLocalStorage_Write_LargeFile(t *testing.T) {
+	base := t.TempDir()
+	s := newLocal(t, base)
+
+	const size = 8 << 20 // 8 MB
+	content := make([]byte, size)
+
+	if err := s.Write(ctx(), "large.bin", bytes.NewReader(content), int64(size)); err != nil {
+		t.Fatalf("Write 8 MB: %v", err)
+	}
+
+	info, err := os.Stat(filepath.Join(base, "large.bin"))
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if info.Size() != int64(size) {
+		t.Errorf("file size = %d, want %d", info.Size(), size)
+	}
+}

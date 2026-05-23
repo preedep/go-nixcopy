@@ -1,6 +1,10 @@
 package storage
 
-import "testing"
+import (
+	"testing"
+
+	appconfig "github.com/preedep/go-nixcopy/internal/infrastructure/config"
+)
 
 func TestS3PartSizeFor(t *testing.T) {
 	tests := []struct {
@@ -61,6 +65,55 @@ func TestS3PartSizeFor(t *testing.T) {
 				parts := (tt.size + got - 1) / got
 				if parts > tt.maxParts {
 					t.Errorf("s3PartSizeFor(%d) = %d, results in %d parts (max %d)", tt.size, got, parts, tt.maxParts)
+				}
+			}
+		})
+	}
+}
+
+// TestS3Storage_UploadConcurrency verifies that the uploadConcurrency field is
+// propagated from S3Config to the S3Storage struct during construction.
+func TestS3Storage_UploadConcurrency(t *testing.T) {
+	tests := []struct {
+		name            string
+		cfgConcurrency  int
+		wantConcurrency int
+		expectDefault   bool
+	}{
+		{
+			name:           "zero uses default",
+			cfgConcurrency: 0,
+			expectDefault:  true,
+		},
+		{
+			name:            "positive value is stored",
+			cfgConcurrency:  10,
+			wantConcurrency: 10,
+		},
+		{
+			name:            "one is stored",
+			cfgConcurrency:  1,
+			wantConcurrency: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &appconfig.S3Config{
+				Region:            "us-east-1",
+				Bucket:            "test-bucket",
+				AuthType:          appconfig.S3AuthAccessKey,
+				UploadConcurrency: tt.cfgConcurrency,
+			}
+			s := NewS3Storage(cfg).(*S3Storage)
+
+			if tt.expectDefault {
+				if s.uploadConcurrency != 0 {
+					t.Errorf("uploadConcurrency = %d, want 0 (uses runtime default)", s.uploadConcurrency)
+				}
+			} else {
+				if s.uploadConcurrency != tt.wantConcurrency {
+					t.Errorf("uploadConcurrency = %d, want %d", s.uploadConcurrency, tt.wantConcurrency)
 				}
 			}
 		})

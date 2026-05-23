@@ -18,14 +18,16 @@ import (
 )
 
 type BlobStorage struct {
-	config          *config.BlobConfig
-	client          *azblob.Client
-	containerClient *container.Client
+	config            *config.BlobConfig
+	client            *azblob.Client
+	containerClient   *container.Client
+	uploadConcurrency int
 }
 
 func NewBlobStorage(cfg *config.BlobConfig) repository.Storage {
 	return &BlobStorage{
-		config: cfg,
+		config:            cfg,
+		uploadConcurrency: cfg.UploadConcurrency,
 	}
 }
 
@@ -235,9 +237,13 @@ func (b *BlobStorage) Write(ctx context.Context, path string, reader io.Reader, 
 	blobName := strings.TrimPrefix(path, "/")
 	blobClient := b.containerClient.NewBlockBlobClient(blobName)
 
+	concurrency := b.uploadConcurrency
+	if concurrency <= 0 {
+		concurrency = blobUploadConcurrency
+	}
 	_, err := blobClient.UploadStream(ctx, reader, &azblob.UploadStreamOptions{
 		BlockSize:   blobBlockSizeFor(size),
-		Concurrency: blobUploadConcurrency,
+		Concurrency: concurrency,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to upload blob: %w", err)

@@ -21,13 +21,15 @@ import (
 )
 
 type S3Storage struct {
-	config   *appconfig.S3Config
-	s3Client *s3.Client
+	config            *appconfig.S3Config
+	s3Client          *s3.Client
+	uploadConcurrency int
 }
 
 func NewS3Storage(cfg *appconfig.S3Config) repository.Storage {
 	return &S3Storage{
-		config: cfg,
+		config:            cfg,
+		uploadConcurrency: cfg.UploadConcurrency,
 	}
 }
 
@@ -227,9 +229,13 @@ func (s *S3Storage) Write(ctx context.Context, path string, reader io.Reader, si
 
 	partSize := s3PartSizeFor(size)
 
+	concurrency := s.uploadConcurrency
+	if concurrency <= 0 {
+		concurrency = s3UploadConcurrency
+	}
 	tm := transfermanager.New(s.s3Client, func(o *transfermanager.Options) {
 		o.PartSizeBytes = partSize
-		o.Concurrency = s3UploadConcurrency
+		o.Concurrency = concurrency
 	})
 
 	_, err := tm.UploadObject(ctx, &transfermanager.UploadObjectInput{
