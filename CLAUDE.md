@@ -12,6 +12,7 @@ Non-obvious design and testing tradeoffs are documented as ADRs in [`docs/adr/`]
 | ADR | Decision |
 |-----|----------|
 | [ADR-0001](docs/adr/0001-sftp-auth-unit-test-strategy.md) | SFTP auth unit test strategy: extract helper over in-process SSH server |
+| [ADR-0002](docs/adr/0002-gcs-emulator-transport.md) | GCS emulator HTTP transport: custom `RoundTripper` rewrites XML API paths for fake-gcs-server compatibility |
 ## Commands
 
 ```bash
@@ -39,10 +40,12 @@ make fmt                # go fmt + gofmt
 # Docker
 make docker-build && make docker-run
 
-# Integration tests (local — requires Docker)
-make integration-test-local   # spin up SFTP + FTPS + MinIO, run integration suite, tear down
+# Integration tests (local — requires Docker + Azure CLI)
+make integration-test-local   # spin up SFTP + FTPS + MinIO + Azurite + fake-gcs-server, run all suites, tear down
 make integration-test-down    # tear down containers without running tests
-./test-integration.sh ftps    # run only the FTPS suite via individual docker run
+./test-integration.sh ftps    # run only the FTPS suite
+./test-integration.sh blob    # run only the Azure Blob / Azurite suite
+./test-integration.sh gcs     # run only the GCS / fake-gcs-server suite
 
 # Clean
 make clean              # build artifacts (bin/)
@@ -238,14 +241,15 @@ Integration tests use the `//go:build integration` tag and require real service 
 ```bash
 make integration-test-local
 ```
-Starts: SFTP (port 2222), FTPS/pure-ftpd (port 21, explicit TLS, self-signed cert), MinIO/S3 (port 9000). All env vars are set automatically.
+Starts: SFTP (port 2222), FTPS/pure-ftpd (port 21, explicit TLS, self-signed cert), MinIO/S3 (port 9000), Azurite/Azure Blob (port 10000), fake-gcs-server/GCS (port 4443). All env vars are set automatically. Requires `az` CLI on the host for Azurite container creation (`brew install azure-cli`).
 
 **Shell script (CI-style, individual docker run)** — matches the CI workflow:
 ```bash
-./test-integration.sh            # all suites
-./test-integration.sh ftps       # FTPS only
-./test-integration.sh sftp s3    # specific suites
-./test-integration.sh -v --no-clean   # verbose, keep containers
+./test-integration.sh               # all suites
+./test-integration.sh ftps          # FTPS only
+./test-integration.sh sftp s3       # specific suites
+./test-integration.sh blob gcs      # Azure Blob + GCS only
+./test-integration.sh -v --no-clean # verbose, keep containers
 ```
 
 Integration test files live alongside unit tests, gated by `-tags=integration`. Each file's helper skips automatically when its required env vars are absent, so `go test ./...` (no tag) always runs cleanly.
@@ -256,6 +260,8 @@ Integration test files live alongside unit tests, gated by `-tags=integration`. 
 | `sftp_integration_test.go` | SFTPStorage | `SFTP_HOST` |
 | `ftps_integration_test.go` | FTPSStorage | `FTPS_HOST` |
 | `s3_integration_test.go` | S3Storage | `S3_ENDPOINT` |
+| `blob_integration_test.go` | BlobStorage | `BLOB_CONNECTION_STRING` |
+| `gcs_integration_test.go` | GCSStorage | `GCS_ENDPOINT` |
 
 ### Benchmarks
 

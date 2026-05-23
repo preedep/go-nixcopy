@@ -22,7 +22,7 @@ go test -v ./internal/usecase/...
 go test ./internal/usecase/... -run TestTransferUseCase_Transfer_Success
 ```
 
-### Integration tests (requires Docker — SFTP + FTPS + MinIO)
+### Integration tests (requires Docker + Azure CLI)
 
 The recommended way is a single Make target that spins up all containers, runs the full suite, and tears everything down automatically:
 
@@ -30,24 +30,34 @@ The recommended way is a single Make target that spins up all containers, runs t
 make integration-test-local
 ```
 
+This starts five emulators: SFTP (port 2222), FTPS (port 21), MinIO/S3 (port 9000), Azurite/Azure Blob (port 10000), fake-gcs-server/GCS (port 4443). The `az` CLI must be installed on the host for Azurite container creation (`brew install azure-cli`).
+
 To run only a specific suite, or to keep containers running after tests:
 
 ```bash
 ./test-integration.sh ftps            # FTPS only
 ./test-integration.sh sftp s3         # SFTP + S3/MinIO
+./test-integration.sh blob gcs        # Azure Blob + GCS only
 ./test-integration.sh -v --no-clean   # verbose, keep containers
 ```
 
 To run the Go test command directly against already-running containers:
 
 ```bash
+# Azurite well-known dev credentials (fixed — always the same)
+AZURITE_CONN="DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;"
+
 S3_ENDPOINT=http://localhost:9000 S3_ACCESS_KEY=minioadmin S3_SECRET_KEY=minioadmin \
 S3_BUCKET=test-bucket S3_REGION=us-east-1 \
 SFTP_HOST=localhost SFTP_PORT=2222 SFTP_USERNAME=testuser SFTP_PASSWORD=testpass \
 FTPS_HOST=localhost FTPS_PORT=21 FTPS_USERNAME=testuser FTPS_PASSWORD=testpass \
 FTPS_TLS_MODE=explicit FTPS_SKIP_VERIFY=true \
+BLOB_CONNECTION_STRING="$AZURITE_CONN" BLOB_CONTAINER=test-container \
+GCS_ENDPOINT=http://localhost:4443/storage/v1/ GCS_BUCKET=test-bucket \
 go test -tags=integration -race -count=1 -v ./internal/infrastructure/storage/...
 ```
+
+**GCS emulator note:** `GCS_ENDPOINT` must include the `/storage/v1/` path suffix. When `auth_type` is `application_default` (or empty) and an endpoint is set, `gcs.go` automatically suppresses ADC credential requirements and rewrites XML API download paths to match fake-gcs-server's `/download/storage/v1/b/<bucket>/o/<object>` format.
 
 ### Makefile shortcuts
 
@@ -96,7 +106,9 @@ internal/
 │   ├── ftps_integration_test.go     — FTPS WriteAndRead/Stat/List/Delete/CreateDirectory (integration tag, requires FTPS_HOST)
 │   ├── ftps_nil_client_test.go      — FTPS nil-client guards: List/Read/Stat/Delete/Disconnect/Write
 │   ├── ftps_test.go                 — ftpMkdirAll: nested paths, single component, errors ignored, deep path
+│   ├── blob_integration_test.go     — Blob WriteAndRead/Stat/List/Delete against Azurite (integration tag, requires BLOB_CONNECTION_STRING)
 │   ├── gcs_auth_test.go             — GCSStorage.Connect: all auth types, missing credentials, unknown type, endpoint option
+│   ├── gcs_integration_test.go      — GCS WriteAndRead/Stat/List/Delete against fake-gcs-server (integration tag, requires GCS_ENDPOINT)
 │   ├── gcs_nil_client_test.go       — GCS nil-client guards: List/Read/Stat/Write/Delete; Disconnect/CreateDirectory no-ops
 │   ├── local_integration_test.go    — Local storage read/write/list (integration tag)
 │   ├── local_unit_test.go           — LocalStorage: Connect, Disconnect, List, Read, Write, Delete, Stat,
@@ -313,7 +325,7 @@ LoadFromEnv(cfg)
 | `internal/interfaces/cli` | ~60% | Flag wiring, validateConfig (100%), TLS mode; `runTransfer`/`runList` require real storage |
 | `internal/infrastructure/storage` | ~53% | Local Connect/Write/CreateDirectory at 100%; FTPS/Blob/S3/SFTP nil-client guards + auth paths; happy paths need integration tag |
 
-Storage coverage in unit mode reflects the nil-client guard pattern — every backend's error paths are covered without credentials. Happy paths (List, Read, Write against real endpoints) are covered by integration tests (`-tags=integration`) against MinIO, SFTP, and FTPS containers (`make integration-test-local`).
+Storage coverage in unit mode reflects the nil-client guard pattern — every backend's error paths are covered without credentials. Happy paths (List, Read, Write against real endpoints) are covered by integration tests (`-tags=integration`) against MinIO, SFTP, FTPS, Azurite (Azure Blob), and fake-gcs-server (GCS) containers (`make integration-test-local`).
 
 ---
 

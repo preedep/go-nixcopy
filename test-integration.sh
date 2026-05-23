@@ -6,6 +6,8 @@
 #   ./test-integration.sh local      # local storage only (no Docker)
 #   ./test-integration.sh s3         # S3/MinIO tests only
 #   ./test-integration.sh sftp       # SFTP tests only
+#   ./test-integration.sh blob       # Azure Blob / Azurite tests only
+#   ./test-integration.sh gcs        # GCS / fake-gcs-server tests only
 #   ./test-integration.sh -v         # pass -v to go test (verbose)
 #   ./test-integration.sh --no-clean # keep containers running after tests
 
@@ -30,6 +32,8 @@ RUN_LOCAL=false
 RUN_S3=false
 RUN_SFTP=false
 RUN_FTPS=false
+RUN_BLOB=false
+RUN_GCS=false
 RUN_ALL=true
 VERBOSE=""
 CLEAN=true
@@ -41,10 +45,12 @@ for arg in "$@"; do
     s3)         RUN_S3=true;     RUN_ALL=false ;;
     sftp)       RUN_SFTP=true;   RUN_ALL=false ;;
     ftps)       RUN_FTPS=true;   RUN_ALL=false ;;
+    blob)       RUN_BLOB=true;   RUN_ALL=false ;;
+    gcs)        RUN_GCS=true;    RUN_ALL=false ;;
     -v|--verbose) VERBOSE="-v" ;;
     --no-clean) CLEAN=false ;;
     -h|--help)
-      echo "Usage: $0 [local|s3|sftp|ftps] [-v] [--no-clean]"
+      echo "Usage: $0 [local|s3|sftp|ftps|blob|gcs] [-v] [--no-clean]"
       exit 0 ;;
     *) error "Unknown argument: $arg"; exit 1 ;;
   esac
@@ -55,17 +61,23 @@ if $RUN_ALL; then
   RUN_S3=true
   RUN_SFTP=true
   RUN_FTPS=true
+  RUN_BLOB=true
+  RUN_GCS=true
 fi
 
 # ── constants ─────────────────────────────────────────────────────────────────
 MINIO_CONTAINER="nixcopy-minio-test"
 SFTP_CONTAINER="nixcopy-sftp-test"
 FTPS_CONTAINER="nixcopy-ftps-test"
+AZURITE_CONTAINER="nixcopy-azurite-test"
+FAKEGCS_CONTAINER="nixcopy-fakegcs-test"
 MINIO_PORT=9000
 SFTP_PORT=2222
 FTPS_PORT=21
 FTPS_PASSIVE_MIN=30000
 FTPS_PASSIVE_MAX=30009
+AZURITE_PORT=10000
+FAKEGCS_PORT=4443
 MINIO_USER="minioadmin"
 MINIO_PASS="minioadmin"
 MINIO_BUCKET="test-bucket"
@@ -73,6 +85,12 @@ SFTP_USER="testuser"
 SFTP_PASS="testpass"
 FTPS_USER="testuser"
 FTPS_PASS="testpass"
+# Azurite well-known development credentials (fixed, always the same)
+AZURITE_ACCOUNT="devstoreaccount1"
+AZURITE_KEY="Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
+AZURITE_CONN="DefaultEndpointsProtocol=http;AccountName=${AZURITE_ACCOUNT};AccountKey=${AZURITE_KEY};BlobEndpoint=http://127.0.0.1:${AZURITE_PORT}/${AZURITE_ACCOUNT};"
+AZURITE_CONTAINER_NAME="test-container"
+GCS_BUCKET="test-bucket"
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 require_docker() {
@@ -118,7 +136,7 @@ cleanup() {
   fi
 
   header "Cleanup"
-  for name in "$MINIO_CONTAINER" "$SFTP_CONTAINER" "$FTPS_CONTAINER"; do
+  for name in "$MINIO_CONTAINER" "$SFTP_CONTAINER" "$FTPS_CONTAINER" "$AZURITE_CONTAINER" "$FAKEGCS_CONTAINER"; do
     if docker ps -a --format '{{.Names}}' | grep -q "^${name}$"; then
       info "Stopping and removing $name"
       docker rm -f "$name" &>/dev/null || true
@@ -245,6 +263,98 @@ start_ftps() {
   return 1
 }
 
+# ── Azurite ───────────────────────────────────────────────────────────────────
+start_azurite() {
+  header "Starting Azurite (Azure Blob emulator)"
+
+  if container_running "$AZURITE_CONTAINER"; then
+    info "Azurite container already running — reusing it"
+    return 0
+  fi
+
+  if ! port_free $AZURITE_PORT; then
+    error "Port $AZURITE_PORT is already in use."
+    exit 1
+  fi
+
+  docker run -d \
+    --name "$AZURITE_CONTAINER" \
+    -p "${AZURITE_PORT}:10000" \
+    mcr.microsoft.com/azure-storage/azurite \
+    azurite-blob --blobHost 0.0.0.0 --blobPort 10000 \
+    > /dev/null
+
+  info "Waiting for Azurite to accept connections..."
+  for i in $(seq 1 30); do
+    if nc -z localhost "$AZURITE_PORT" 2>/dev/null; then
+      success "Azurite ready at http://localhost:${AZURITE_PORT} (account: ${AZURITE_ACCOUNT})"
+      return 0
+    fi
+    sleep 1
+  done
+
+  error "Azurite did not become ready in time"
+  docker logs "$AZURITE_CONTAINER" 2>&1 | tail -20
+  return 1
+}
+
+create_azurite_container() {
+  info "Creating blob container: ${AZURITE_CONTAINER_NAME}"
+  if ! command -v az &>/dev/null; then
+    error "Azure CLI (az) not found — install it or run 'brew install azure-cli'"
+    exit 1
+  fi
+  az storage container create \
+    --name "$AZURITE_CONTAINER_NAME" \
+    --connection-string "$AZURITE_CONN" \
+    --output none
+  success "Blob container '${AZURITE_CONTAINER_NAME}' ready"
+}
+
+# ── fake-gcs-server ───────────────────────────────────────────────────────────
+start_fakegcs() {
+  header "Starting fake-gcs-server (GCS emulator)"
+
+  if container_running "$FAKEGCS_CONTAINER"; then
+    info "fake-gcs-server container already running — reusing it"
+    return 0
+  fi
+
+  if ! port_free $FAKEGCS_PORT; then
+    error "Port $FAKEGCS_PORT is already in use."
+    exit 1
+  fi
+
+  docker run -d \
+    --name "$FAKEGCS_CONTAINER" \
+    -p "${FAKEGCS_PORT}:4443" \
+    fsouza/fake-gcs-server \
+    -scheme http -port 4443 -backend memory -public-host "localhost:${FAKEGCS_PORT}" \
+    > /dev/null
+
+  info "Waiting for fake-gcs-server to accept connections..."
+  for i in $(seq 1 30); do
+    if curl -sf "http://localhost:${FAKEGCS_PORT}/storage/v1/b" >/dev/null 2>&1; then
+      success "fake-gcs-server ready at http://localhost:${FAKEGCS_PORT}"
+      return 0
+    fi
+    sleep 1
+  done
+
+  error "fake-gcs-server did not become ready in time"
+  docker logs "$FAKEGCS_CONTAINER" 2>&1 | tail -20
+  return 1
+}
+
+create_gcs_bucket() {
+  info "Creating GCS bucket: ${GCS_BUCKET}"
+  curl -sf -X POST \
+    "http://localhost:${FAKEGCS_PORT}/storage/v1/b" \
+    -H "Content-Type: application/json" \
+    -d "{\"name\":\"${GCS_BUCKET}\"}" >/dev/null
+  success "GCS bucket '${GCS_BUCKET}' ready"
+}
+
 # ── run tests ─────────────────────────────────────────────────────────────────
 run_tests() {
   local tags="$1"
@@ -263,7 +373,7 @@ run_tests() {
 # ── main ──────────────────────────────────────────────────────────────────────
 header "go-nixcopy Integration Tests"
 echo -e "  Target:  ${BOLD}$(go env GOOS)/$(go env GOARCH)${NC}"
-echo -e "  Suites:  local=$RUN_LOCAL  s3=$RUN_S3  sftp=$RUN_SFTP"
+echo -e "  Suites:  local=$RUN_LOCAL  s3=$RUN_S3  sftp=$RUN_SFTP  ftps=$RUN_FTPS  blob=$RUN_BLOB  gcs=$RUN_GCS"
 
 EXIT_CODE=0
 
@@ -333,6 +443,40 @@ if $RUN_FTPS; then
     success "FTPS tests passed"
   else
     error "FTPS tests FAILED"
+    EXIT_CODE=1
+  fi
+fi
+
+# ─ Azure Blob / Azurite ─
+if $RUN_BLOB; then
+  require_docker
+  start_azurite
+  create_azurite_container
+
+  header "Suite: Azure Blob / Azurite"
+  if run_tests "" "TestBlobStorage" \
+       "BLOB_CONNECTION_STRING=${AZURITE_CONN}" \
+       "BLOB_CONTAINER=${AZURITE_CONTAINER_NAME}"; then
+    success "Blob tests passed"
+  else
+    error "Blob tests FAILED"
+    EXIT_CODE=1
+  fi
+fi
+
+# ─ GCS / fake-gcs-server ─
+if $RUN_GCS; then
+  require_docker
+  start_fakegcs
+  create_gcs_bucket
+
+  header "Suite: GCS / fake-gcs-server"
+  if run_tests "" "TestGCSStorage" \
+       "GCS_ENDPOINT=http://localhost:${FAKEGCS_PORT}/storage/v1/" \
+       "GCS_BUCKET=${GCS_BUCKET}"; then
+    success "GCS tests passed"
+  else
+    error "GCS tests FAILED"
     EXIT_CODE=1
   fi
 fi

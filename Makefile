@@ -1,4 +1,4 @@
-.PHONY: build clean test install run help deps fmt lint docker-build docker-buildx docker-run integration-test-local integration-test-down
+.PHONY: build clean test install run help deps fmt lint docker-build docker-buildx docker-run integration-test-local integration-test-down integration-test-blob integration-test-gcs
 
 BINARY_NAME=nixcopy
 BINARY_PATH=./bin/$(BINARY_NAME)
@@ -143,17 +143,30 @@ docker-run-config: ## Run Docker container mounting a local config.yaml
 
 COMPOSE_INT = docker-compose.integration.yml
 
-integration-test-local: ## Spin up SFTP + FTPS + MinIO via Compose and run all integration tests locally
+# Azurite well-known development credentials (fixed, always the same)
+AZURITE_ACCOUNT  = devstoreaccount1
+AZURITE_KEY      = Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==
+AZURITE_CONN     = DefaultEndpointsProtocol=http;AccountName=$(AZURITE_ACCOUNT);AccountKey=$(AZURITE_KEY);BlobEndpoint=http://127.0.0.1:10000/$(AZURITE_ACCOUNT);
+
+integration-test-local: ## Spin up SFTP + FTPS + MinIO + Azurite + fake-gcs-server via Compose and run all integration tests locally
 	docker compose -f $(COMPOSE_INT) up -d --wait --timeout 120
 	docker run --rm \
 		--network nixcopy-integration_default \
 		-e MC_HOST_local=http://minioadmin:minioadmin@minio:9000 \
 		minio/mc mb --ignore-existing local/test-bucket
+	az storage container create --name test-container \
+		--connection-string "$(AZURITE_CONN)" \
+		--output none
+	curl -sf -X POST http://localhost:4443/storage/v1/b \
+		-H "Content-Type: application/json" \
+		-d '{"name":"test-bucket"}' >/dev/null
 	@S3_ENDPOINT=http://localhost:9000 S3_ACCESS_KEY=minioadmin S3_SECRET_KEY=minioadmin \
 	 S3_BUCKET=test-bucket S3_REGION=us-east-1 \
 	 SFTP_HOST=localhost SFTP_PORT=2222 SFTP_USERNAME=testuser SFTP_PASSWORD=testpass \
 	 FTPS_HOST=localhost FTPS_PORT=21 FTPS_USERNAME=testuser FTPS_PASSWORD=testpass \
 	 FTPS_TLS_MODE=explicit FTPS_SKIP_VERIFY=true \
+	 BLOB_CONNECTION_STRING="$(AZURITE_CONN)" BLOB_CONTAINER=test-container \
+	 GCS_ENDPOINT=http://localhost:4443/storage/v1/ GCS_BUCKET=test-bucket \
 	 go test -tags=integration -race -count=1 -v ./internal/infrastructure/storage/...; \
 	 EXIT=$$?; \
 	 docker compose -f $(COMPOSE_INT) down -v; \
