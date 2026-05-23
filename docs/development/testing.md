@@ -136,6 +136,7 @@ internal/
 │   ├── transfer_summary_test.go     — transferSummary JSON shape, omitempty, failed_files
 │   └── validate_format_test.go      — validateConfig all source/dest backend error paths (SFTP/FTPS/S3/Blob/GCS),
 │                                      compression validation, formatSize boundary cases → validateConfig 100%
+│                                      Note: Blob account name is NOT required when auth_type == connection_string
 └── usecase/
     ├── compress_test.go             — gzip/zstd round-trips, passthrough, ratio, invalid algo (6 tests)
     ├── pattern_matcher_test.go      — glob expansion, recursive **, no-match behaviour
@@ -326,6 +327,66 @@ LoadFromEnv(cfg)
 | `internal/infrastructure/storage` | ~53% | Local Connect/Write/CreateDirectory at 100%; FTPS/Blob/S3/SFTP nil-client guards + auth paths; happy paths need integration tag |
 
 Storage coverage in unit mode reflects the nil-client guard pattern — every backend's error paths are covered without credentials. Happy paths (List, Read, Write against real endpoints) are covered by integration tests (`-tags=integration`) against MinIO, SFTP, FTPS, Azurite (Azure Blob), and fake-gcs-server (GCS) containers (`make integration-test-local`).
+
+---
+
+## Shell Script Examples
+
+Self-contained beginner scripts live in `examples/shellscript/`. Each passes credentials via environment variables so secrets never appear in the script body.
+
+| Script | Scenario | Credentials needed |
+|--------|----------|--------------------|
+| `01-local-to-local.sh` | Local copy, glob, checksum | none |
+| `02-local-to-sftp.sh` | Upload to SFTP | `SFTP_HOST`, `SFTP_USER`, `SFTP_PASS` or key |
+| `03-sftp-to-local.sh` | Download from SFTP | same |
+| `04-local-to-s3.sh` | Upload to S3 | `AWS_ACCESS_KEY`, `AWS_SECRET_KEY`, `S3_BUCKET` |
+| `05-s3-to-local.sh` | Download from S3 | same |
+| `06-local-to-azure-blob.sh` | Upload to Azure Blob | `BLOB_CONN` or `BLOB_KEY` + `BLOB_ACCOUNT` |
+| `07-local-to-gcs.sh` | Upload to GCS | ADC or `GCS_SA_FILE` |
+| `08-sftp-to-s3.sh` | SFTP → S3 direct stream | both |
+| `09-batch-transfer.sh` | S3 → Blob batch, skip-existing | both |
+| `10-advanced-options.sh` | resume, bandwidth-limit, retry, verbose | none (local only) |
+| `11-s3-to-blob.sh` | S3 ↔ Azure Blob both directions | both |
+
+### Running 11-s3-to-blob.sh locally (MinIO + Azurite)
+
+```bash
+# 1. Start containers
+docker compose -f docker-compose.integration.yml up -d minio azurite --wait
+
+# 2. Create bucket and container
+docker run --rm --network host \
+  -e MC_HOST_local=http://minioadmin:minioadmin@127.0.0.1:9000 \
+  minio/mc mb --ignore-existing local/test-bucket
+
+AZURITE_CONN="DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;\
+AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;\
+BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;"
+
+az storage container create --name test-container \
+  --connection-string "$AZURITE_CONN" --output none
+
+# 3. Run the script — NIXCOPY_*_ENDPOINT and USE_PATH_STYLE route to local emulators
+NIXCOPY_SOURCE_ENDPOINT=http://localhost:9000 NIXCOPY_SOURCE_USE_PATH_STYLE=true \
+NIXCOPY_DEST_ENDPOINT=http://localhost:9000   NIXCOPY_DEST_USE_PATH_STYLE=true \
+S3_BUCKET=test-bucket S3_REGION=us-east-1 \
+AWS_ACCESS_KEY=minioadmin AWS_SECRET_KEY=minioadmin \
+BLOB_CONTAINER=test-container BLOB_CONN="$AZURITE_CONN" \
+  bash examples/shellscript/11-s3-to-blob.sh
+
+# 4. Tear down
+docker compose -f docker-compose.integration.yml down -v
+```
+
+**Key env vars for local testing (no CLI flags for these):**
+
+| Env var | Purpose |
+|---|---|
+| `NIXCOPY_SOURCE_ENDPOINT` / `NIXCOPY_DEST_ENDPOINT` | Custom S3/GCS/Blob endpoint (MinIO, fake-gcs, Azurite) |
+| `NIXCOPY_SOURCE_USE_PATH_STYLE` / `NIXCOPY_DEST_USE_PATH_STYLE` | Required `true` for MinIO path-style S3 |
+| `NIXCOPY_SOURCE_CONNECTION_STRING` / `NIXCOPY_DEST_CONNECTION_STRING` | Azure Blob connection string |
+| `NIXCOPY_SOURCE_PROFILE` / `NIXCOPY_DEST_PROFILE` | AWS named credentials profile |
+| `NIXCOPY_VERIFY_CHECKSUM=true` | Enable SHA-256 checksum verification |
 
 ---
 

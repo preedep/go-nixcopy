@@ -47,6 +47,11 @@ make integration-test-down    # tear down containers without running tests
 ./test-integration.sh blob    # run only the Azure Blob / Azurite suite
 ./test-integration.sh gcs     # run only the GCS / fake-gcs-server suite
 
+# Shell script examples (no build required — uses installed nixcopy)
+bash examples/shellscript/01-local-to-local.sh            # local copy, no credentials needed
+bash examples/shellscript/10-advanced-options.sh          # resume, skip-existing, bandwidth limit
+bash examples/shellscript/11-s3-to-blob.sh                # S3 ↔ Azure Blob (set env vars first)
+
 # Clean
 make clean              # build artifacts (bin/)
 make clean-dist         # release artifacts (dist/)
@@ -118,6 +123,21 @@ cmd/nixcopy/main.go
 
 **Flag description convention**: every flag that has a corresponding `NIXCOPY_*` env var must include `(env: NIXCOPY_VAR)` at the end of its description string. The canonical mapping is in `internal/infrastructure/config/envloader.go`.
 
+**Settings that have no CLI flag** — must be set via env var or config file:
+
+| Setting | Env var | CLI flag |
+|---|---|---|
+| S3 / GCS / Blob custom endpoint | `NIXCOPY_SOURCE_ENDPOINT` / `NIXCOPY_DEST_ENDPOINT` | none |
+| S3 path-style addressing (MinIO) | `NIXCOPY_SOURCE_USE_PATH_STYLE` / `NIXCOPY_DEST_USE_PATH_STYLE` | none |
+| S3 named profile | `NIXCOPY_SOURCE_PROFILE` / `NIXCOPY_DEST_PROFILE` | none |
+| Azure Blob connection string | `NIXCOPY_SOURCE_CONNECTION_STRING` / `NIXCOPY_DEST_CONNECTION_STRING` | none |
+| SHA-256 checksum verification | `NIXCOPY_VERIFY_CHECKSUM=true` | none |
+| Retry delay | `NIXCOPY_RETRY_DELAY` | none |
+
+Shell scripts must use env-var prefixing for these: `NIXCOPY_DEST_CONNECTION_STRING="$CONN" nixcopy transfer ...`
+
+**Blob `connection_string` auth** does not require `--dest-account-name` / `--source-account-name` — the account name is embedded in the connection string. The CLI validator skips the account-name check when `auth_type == connection_string`.
+
 ---
 
 ## Adding a New Storage Backend
@@ -128,7 +148,7 @@ Follow these three steps (see [CONTRIBUTING.md](docs/development/contributing.md
 2. **Add config struct** in `internal/infrastructure/config/config.go`
 3. **Register** the new type in `internal/infrastructure/storage/factory.go`
 
-Then write unit tests using `MockStorage` as a reference and add an entry to `examples/`.
+Then write unit tests using `MockStorage` as a reference and add an entry to `examples/` (YAML config) and `examples/shellscript/` (shell script).
 
 **Optionally** implement `repository.Resumer` (`ReadFrom` + `AppendWrite`) to enable `--resume` support. The use case detects this via type assertion at runtime — backends that don't implement it fall back to full re-transfer silently.
 
@@ -196,7 +216,7 @@ Memory is bounded by `bufferSize × concurrentFiles`. Tune together:
 | 10–100 MB | 32–64 MB | 4–8 |
 | > 100 MB | 64–128 MB | 2–4 |
 
-On an unstable network, increase `--retry-attempts` and `--retry-delay` before increasing concurrency.
+On an unstable network, increase `--retry-attempts` before increasing concurrency. (`--retry-delay` is config-file / `NIXCOPY_RETRY_DELAY` env var only — no CLI flag.)
 
 ---
 
