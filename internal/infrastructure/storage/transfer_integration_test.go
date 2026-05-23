@@ -766,14 +766,12 @@ func TestTransfer_HighConcurrency(t *testing.T) {
 	// Write workers source files with distinct byte patterns.
 	fileContents := make([][]byte, workers)
 	srcPaths := make([]string, workers)
-	dstPaths := make([]string, workers)
 	for i := 0; i < workers; i++ {
 		fileContents[i] = make([]byte, fileSize)
 		for j := range fileContents[i] {
 			fileContents[i][j] = byte((i*7 + j) % 251)
 		}
 		srcPaths[i] = fmt.Sprintf("hc-src-%d.bin", i)
-		dstPaths[i] = fmt.Sprintf("hc-dst-%d.bin", i)
 		putFile(t, src, srcPaths[i], fileContents[i])
 	}
 
@@ -787,7 +785,9 @@ func TestTransfer_HighConcurrency(t *testing.T) {
 		t.Fatalf("got %d results, want %d", len(results), workers)
 	}
 	for i := 0; i < workers; i++ {
-		got := getFile(t, dst, dstPaths[i])
+		// TransferBatch preserves the source filename under destBase, so the
+		// destination path is srcPaths[i], not a renamed dstPaths[i].
+		got := getFile(t, dst, srcPaths[i])
 		if !bytes.Equal(got, fileContents[i]) {
 			t.Errorf("worker %d: content mismatch (len got=%d want=%d)", i, len(got), len(fileContents[i]))
 		}
