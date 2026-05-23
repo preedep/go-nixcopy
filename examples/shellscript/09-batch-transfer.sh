@@ -3,10 +3,10 @@
 #
 # Beginner scenario: move a large number of files efficiently.
 # Demonstrates --sources (multiple explicit patterns), concurrency tuning,
-# skip-existing, and dry-run preview via `nixcopy list`.
+# skip-existing, and preview via `nixcopy list`.
 #
-# This example uses S3 as source and Azure Blob as destination, but the
-# same flags work for any combination of backends.
+# Uses S3 as source and Azure Blob as destination.
+# Run 04-local-to-s3.sh first to seed the source S3 bucket.
 #
 # Prerequisites:
 #   nixcopy installed
@@ -15,6 +15,13 @@
 # Usage:
 #   AWS_ACCESS_KEY=... AWS_SECRET_KEY=... S3_BUCKET=src-bucket \
 #   BLOB_CONN="..." BLOB_CONTAINER=dest-container \
+#     bash 09-batch-transfer.sh
+#
+# Usage against local emulators (MinIO + Azurite):
+#   AWS_ACCESS_KEY=minioadmin AWS_SECRET_KEY=minioadmin S3_BUCKET=test-bucket \
+#   NIXCOPY_SOURCE_ENDPOINT=http://localhost:9000 NIXCOPY_SOURCE_USE_PATH_STYLE=true \
+#   BLOB_CONN="DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;..." \
+#   BLOB_CONTAINER=test-container \
 #     bash 09-batch-transfer.sh
 
 set -euo pipefail
@@ -28,23 +35,22 @@ AWS_SECRET_KEY="${AWS_SECRET_KEY:-}"
 BLOB_CONTAINER="${BLOB_CONTAINER:-dest-container}"
 BLOB_CONN="${BLOB_CONN:-}"
 
+# S3_PREFIX must match what 04-local-to-s3.sh uploaded under
+S3_PREFIX="uploads/2024/"
+
 # ── Tip: Preview files before transferring ────────────────────────────────────
-echo "=== Preview: list files that match the pattern ==="
-echo "    Use 'nixcopy list' to verify what will be transferred."
-echo ""
-nixcopy list \
-  --source-type s3 \
-  --source-region "$S3_REGION" \
-  --source-bucket "$S3_BUCKET" \
-  --source-auth-type access_key \
-  --source-access-key "$AWS_ACCESS_KEY" \
-  --source-secret-key "$AWS_SECRET_KEY" \
-  --source "reports/2024/**" \
-  --source
+# nixcopy list reads backend config from a config file (-c). To preview files:
+#
+#   nixcopy list -c config.yaml -p "uploads/2024/**" --source
+#
+# The list subcommand does not accept inline --source-type / --source-bucket
+# flags — use a config file or the transfer subcommand with --dry-run (if added).
+echo "=== Skipping list preview (requires -c config.yaml) ==="
+echo "    Tip: nixcopy list -c config.yaml -p '${S3_PREFIX}**' --source"
 echo ""
 
-# ── Example 1: Single glob pattern — all 2024 reports ────────────────────────
-echo "=== Transfer all 2024 reports (single glob) ==="
+# ── Example 1: Single glob pattern ────────────────────────────────────────────
+echo "=== Transfer all files under ${S3_PREFIX} (single glob) ==="
 NIXCOPY_DEST_CONNECTION_STRING="$BLOB_CONN" nixcopy transfer \
   --source-type s3 \
   --source-region "$S3_REGION" \
@@ -52,12 +58,12 @@ NIXCOPY_DEST_CONNECTION_STRING="$BLOB_CONN" nixcopy transfer \
   --source-auth-type access_key \
   --source-access-key "$AWS_ACCESS_KEY" \
   --source-secret-key "$AWS_SECRET_KEY" \
-  --source "reports/2024/**" \
+  --source "${S3_PREFIX}**" \
   --dest-type blob \
   --dest-container "$BLOB_CONTAINER" \
   --dest-auth-type connection_string \
-  --dest "archive/reports/2024/" \
-  --concurrent-files 8
+  --dest "archive/${S3_PREFIX}" \
+  --concurrent-files 4
 echo "Done."
 
 # ── Example 2: Multiple patterns via --sources ────────────────────────────────
@@ -70,16 +76,16 @@ NIXCOPY_DEST_CONNECTION_STRING="$BLOB_CONN" nixcopy transfer \
   --source-auth-type access_key \
   --source-access-key "$AWS_ACCESS_KEY" \
   --source-secret-key "$AWS_SECRET_KEY" \
-  --sources "reports/2024/**/*.csv,reports/2024/**/*.pdf" \
+  --sources "${S3_PREFIX}*.csv,${S3_PREFIX}*.pdf" \
   --dest-type blob \
   --dest-container "$BLOB_CONTAINER" \
   --dest-auth-type connection_string \
   --dest "archive/mixed/" \
-  --concurrent-files 6 \
+  --concurrent-files 4 \
   --retry-attempts 3
 echo "Done."
 
-# ── Example 3: Skip files that already exist at the destination ───────────────
+# ── Example 3: Skip files already at destination (incremental sync) ───────────
 echo ""
 echo "=== Incremental sync: skip files already present at destination ==="
 NIXCOPY_DEST_CONNECTION_STRING="$BLOB_CONN" nixcopy transfer \
@@ -89,12 +95,12 @@ NIXCOPY_DEST_CONNECTION_STRING="$BLOB_CONN" nixcopy transfer \
   --source-auth-type access_key \
   --source-access-key "$AWS_ACCESS_KEY" \
   --source-secret-key "$AWS_SECRET_KEY" \
-  --source "reports/2024/**" \
+  --source "${S3_PREFIX}**" \
   --dest-type blob \
   --dest-container "$BLOB_CONTAINER" \
   --dest-auth-type connection_string \
-  --dest "archive/reports/2024/" \
-  --concurrent-files 8 \
+  --dest "archive/${S3_PREFIX}" \
+  --concurrent-files 4 \
   --skip-existing
 echo "Incremental sync complete."
 

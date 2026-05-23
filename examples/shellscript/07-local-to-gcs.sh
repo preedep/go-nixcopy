@@ -16,12 +16,15 @@
 #
 # Usage (service_account):
 #   GCS_BUCKET=my-bucket GCS_SA_FILE=/path/to/key.json bash 07-local-to-gcs.sh
+#
+# Usage against fake-gcs-server (local emulator):
+#   GCS_BUCKET=test-bucket NIXCOPY_DEST_ENDPOINT=http://localhost:4443/storage/v1/ \
+#     bash 07-local-to-gcs.sh
 
 set -euo pipefail
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 GCS_BUCKET="${GCS_BUCKET:-my-gcs-bucket}"
-GCS_PROJECT="${GCS_PROJECT:-my-gcp-project}"
 GCS_SA_FILE="${GCS_SA_FILE:-}"       # path to service account JSON key
 
 LOCAL_FILE="/tmp/nixcopy-gcs-demo/model.pkl"
@@ -59,7 +62,7 @@ if [[ -n "$GCS_SA_FILE" && -f "$GCS_SA_FILE" ]]; then
   echo "Upload complete."
 fi
 
-# ── Example 3: Upload on GKE using Workload Identity ────────────────────────
+# ── Example 3: Upload on GKE using Workload Identity ─────────────────────────
 echo ""
 echo "=== Upload using Workload Identity (GKE) ==="
 echo "# nixcopy transfer \\"
@@ -83,7 +86,7 @@ nixcopy transfer \
   --dest-bucket "$GCS_BUCKET" \
   --dest-auth-type application_default \
   --dest "$GCS_PREFIX" \
-  --concurrent-files 3 \
+  --concurrent-files 3
 echo "Batch upload complete."
 
 # ── Cleanup ────────────────────────────────────────────────────────────────────
