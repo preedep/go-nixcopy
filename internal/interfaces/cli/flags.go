@@ -366,7 +366,7 @@ func validateConfig(cfg *config.Config) error {
 		if cfg.Source.BlobStorage == nil {
 			return fmt.Errorf("Blob Storage source configuration is required")
 		}
-		if cfg.Source.BlobStorage.AccountName == "" {
+		if cfg.Source.BlobStorage.AuthType != config.BlobAuthConnectionString && cfg.Source.BlobStorage.AccountName == "" {
 			return fmt.Errorf("source Blob Storage account name is required")
 		}
 		if cfg.Source.BlobStorage.ContainerName == "" {
@@ -425,7 +425,7 @@ func validateConfig(cfg *config.Config) error {
 		if cfg.Destination.BlobStorage == nil {
 			return fmt.Errorf("Blob Storage destination configuration is required")
 		}
-		if cfg.Destination.BlobStorage.AccountName == "" {
+		if cfg.Destination.BlobStorage.AuthType != config.BlobAuthConnectionString && cfg.Destination.BlobStorage.AccountName == "" {
 			return fmt.Errorf("destination Blob Storage account name is required")
 		}
 		if cfg.Destination.BlobStorage.ContainerName == "" {

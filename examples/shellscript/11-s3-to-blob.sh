@@ -13,16 +13,23 @@
 #   Azure Blob credentials (connection_string or shared_key)
 #
 # Usage:
-#   # S3 → Blob
+#   # S3 → Blob (BLOB_CONN is passed via env var — there is no --dest-connection-string flag)
 #   AWS_ACCESS_KEY=AKIA... AWS_SECRET_KEY=... S3_BUCKET=src-bucket \
 #   BLOB_CONN="DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net" \
+#   NIXCOPY_DEST_CONNECTION_STRING="$BLOB_CONN" \
 #   BLOB_CONTAINER=dest-container \
 #     bash 11-s3-to-blob.sh
 #
-#   # Blob → S3 (swap the env-var roles)
+#   # Blob → S3 (swap the env-var roles; BLOB_CONN via NIXCOPY_SOURCE_CONNECTION_STRING)
 #   BLOB_CONN="..." BLOB_CONTAINER=src-container \
 #   AWS_ACCESS_KEY=AKIA... AWS_SECRET_KEY=... S3_BUCKET=dest-bucket \
 #     bash 11-s3-to-blob.sh
+#
+#   # Local MinIO testing (point nixcopy at local containers instead of real clouds):
+#   export NIXCOPY_SOURCE_ENDPOINT=http://localhost:9000
+#   export NIXCOPY_SOURCE_USE_PATH_STYLE=true
+#   export NIXCOPY_DEST_ENDPOINT=http://localhost:9000
+#   export NIXCOPY_DEST_USE_PATH_STYLE=true
 
 set -euo pipefail
 
@@ -49,7 +56,7 @@ echo "════════════════════════�
 # ── A1: Single file ───────────────────────────────────────────────────────────
 echo ""
 echo "=== A1. Copy one object from S3 to Blob ==="
-nixcopy transfer \
+NIXCOPY_DEST_CONNECTION_STRING="$BLOB_CONN" nixcopy transfer \
   --source-type s3 \
   --source-region "$S3_REGION" \
   --source-bucket "$S3_BUCKET" \
@@ -60,14 +67,13 @@ nixcopy transfer \
   --dest-type blob \
   --dest-container "$BLOB_CONTAINER" \
   --dest-auth-type connection_string \
-  --dest-connection-string "$BLOB_CONN" \
   --dest "migrated/report.csv"
 echo "Done."
 
 # ── A2: Batch — migrate an entire prefix ─────────────────────────────────────
 echo ""
 echo "=== A2. Migrate all objects under data/2024/ from S3 to Blob ==="
-nixcopy transfer \
+NIXCOPY_DEST_CONNECTION_STRING="$BLOB_CONN" nixcopy transfer \
   --source-type s3 \
   --source-region "$S3_REGION" \
   --source-bucket "$S3_BUCKET" \
@@ -78,7 +84,6 @@ nixcopy transfer \
   --dest-type blob \
   --dest-container "$BLOB_CONTAINER" \
   --dest-auth-type connection_string \
-  --dest-connection-string "$BLOB_CONN" \
   --dest "migrated/2024/" \
   --concurrent-files 6 \
   --retry-attempts 3
@@ -87,7 +92,7 @@ echo "Batch migration complete."
 # ── A3: Incremental sync (skip objects already copied) ────────────────────────
 echo ""
 echo "=== A3. Incremental sync: skip objects already present in Blob ==="
-nixcopy transfer \
+NIXCOPY_DEST_CONNECTION_STRING="$BLOB_CONN" nixcopy transfer \
   --source-type s3 \
   --source-region "$S3_REGION" \
   --source-bucket "$S3_BUCKET" \
@@ -98,7 +103,6 @@ nixcopy transfer \
   --dest-type blob \
   --dest-container "$BLOB_CONTAINER" \
   --dest-auth-type connection_string \
-  --dest-connection-string "$BLOB_CONN" \
   --dest "migrated/2024/" \
   --concurrent-files 6 \
   --skip-existing
@@ -113,7 +117,7 @@ echo "#   --source-region $S3_REGION --source-bucket $S3_BUCKET \\"
 echo "#   --source-auth-type iam_role \\"
 echo "#   --source 'data/**' \\"
 echo "#   --dest-type blob \\"
-echo "#   --dest-account $BLOB_ACCOUNT --dest-container $BLOB_CONTAINER \\"
+echo "#   --dest-account-name $BLOB_ACCOUNT --dest-container $BLOB_CONTAINER \\"
 echo "#   --dest-auth-type managed_identity \\"
 echo "#   --dest 'migrated/' \\"
 echo "#   --concurrent-files 8"
@@ -131,11 +135,10 @@ echo "════════════════════════�
 # ── B1: Single file ───────────────────────────────────────────────────────────
 echo ""
 echo "=== B1. Copy one blob to S3 ==="
-nixcopy transfer \
+NIXCOPY_SOURCE_CONNECTION_STRING="$BLOB_CONN" nixcopy transfer \
   --source-type blob \
   --source-container "$BLOB_CONTAINER" \
   --source-auth-type connection_string \
-  --source-connection-string "$BLOB_CONN" \
   --source "migrated/report.csv" \
   --dest-type s3 \
   --dest-region "$S3_REGION" \
@@ -149,11 +152,10 @@ echo "Done."
 # ── B2: Batch — copy an entire container prefix to S3 ────────────────────────
 echo ""
 echo "=== B2. Batch copy all blobs under migrated/2024/ to S3 ==="
-nixcopy transfer \
+NIXCOPY_SOURCE_CONNECTION_STRING="$BLOB_CONN" nixcopy transfer \
   --source-type blob \
   --source-container "$BLOB_CONTAINER" \
   --source-auth-type connection_string \
-  --source-connection-string "$BLOB_CONN" \
   --source "migrated/2024/**" \
   --dest-type s3 \
   --dest-region "$S3_REGION" \
@@ -170,11 +172,10 @@ echo "Batch copy complete."
 echo ""
 echo "=== B3. Daily backup snapshot: Blob → S3 with bandwidth cap ==="
 TODAY=$(date +%Y-%m-%d)
-nixcopy transfer \
+NIXCOPY_SOURCE_CONNECTION_STRING="$BLOB_CONN" nixcopy transfer \
   --source-type blob \
   --source-container "$BLOB_CONTAINER" \
   --source-auth-type connection_string \
-  --source-connection-string "$BLOB_CONN" \
   --source "production/**" \
   --dest-type s3 \
   --dest-region "$S3_REGION" \

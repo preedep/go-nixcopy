@@ -34,13 +34,12 @@ echo "Sample invoice content" > "$LOCAL_FILE"
 # ── Example 1: Upload with connection string (simplest) ───────────────────────
 if [[ -n "$BLOB_CONN" ]]; then
   echo "=== Upload with connection_string auth ==="
-  nixcopy transfer \
+  NIXCOPY_DEST_CONNECTION_STRING="$BLOB_CONN" nixcopy transfer \
     --source-type local \
     --source "$LOCAL_FILE" \
     --dest-type blob \
     --dest-container "$BLOB_CONTAINER" \
     --dest-auth-type connection_string \
-    --dest-connection-string "$BLOB_CONN" \
     --dest "${BLOB_PREFIX}invoice.pdf"
   echo "Upload complete."
 fi
@@ -53,7 +52,7 @@ if [[ -n "$BLOB_KEY" ]]; then
     --source-type local \
     --source "$LOCAL_FILE" \
     --dest-type blob \
-    --dest-account "$BLOB_ACCOUNT" \
+    --dest-account-name "$BLOB_ACCOUNT" \
     --dest-container "$BLOB_CONTAINER" \
     --dest-auth-type shared_key \
     --dest-account-key "$BLOB_KEY" \
@@ -67,7 +66,7 @@ echo "=== Upload using Managed Identity (Azure VM / AKS) ==="
 echo "# nixcopy transfer \\"
 echo "#   --source-type local --source $LOCAL_FILE \\"
 echo "#   --dest-type blob \\"
-echo "#   --dest-account $BLOB_ACCOUNT --dest-container $BLOB_CONTAINER \\"
+echo "#   --dest-account-name $BLOB_ACCOUNT --dest-container $BLOB_CONTAINER \\"
 echo "#   --dest-auth-type managed_identity \\"
 echo "#   --dest ${BLOB_PREFIX}invoice-mi.pdf"
 echo "(Skipped — requires an Azure VM/AKS environment)"
@@ -80,15 +79,14 @@ if [[ -n "$BLOB_CONN" ]]; then
     cp "$LOCAL_FILE" "/tmp/nixcopy-blob-demo/invoice-$i.pdf"
   done
 
-  nixcopy transfer \
+  NIXCOPY_DEST_CONNECTION_STRING="$BLOB_CONN" nixcopy transfer \
     --source-type local \
     --source "/tmp/nixcopy-blob-demo/*.pdf" \
     --dest-type blob \
     --dest-container "$BLOB_CONTAINER" \
     --dest-auth-type connection_string \
-    --dest-connection-string "$BLOB_CONN" \
     --dest "$BLOB_PREFIX" \
-    --concurrent-files 3 \
+    --concurrent-files 3
   echo "Batch upload complete."
 fi
 

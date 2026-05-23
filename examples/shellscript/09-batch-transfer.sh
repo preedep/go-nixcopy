@@ -45,7 +45,7 @@ echo ""
 
 # ── Example 1: Single glob pattern — all 2024 reports ────────────────────────
 echo "=== Transfer all 2024 reports (single glob) ==="
-nixcopy transfer \
+NIXCOPY_DEST_CONNECTION_STRING="$BLOB_CONN" nixcopy transfer \
   --source-type s3 \
   --source-region "$S3_REGION" \
   --source-bucket "$S3_BUCKET" \
@@ -56,7 +56,6 @@ nixcopy transfer \
   --dest-type blob \
   --dest-container "$BLOB_CONTAINER" \
   --dest-auth-type connection_string \
-  --dest-connection-string "$BLOB_CONN" \
   --dest "archive/reports/2024/" \
   --concurrent-files 8
 echo "Done."
@@ -64,7 +63,7 @@ echo "Done."
 # ── Example 2: Multiple patterns via --sources ────────────────────────────────
 echo ""
 echo "=== Transfer CSVs and PDFs simultaneously (--sources) ==="
-nixcopy transfer \
+NIXCOPY_DEST_CONNECTION_STRING="$BLOB_CONN" nixcopy transfer \
   --source-type s3 \
   --source-region "$S3_REGION" \
   --source-bucket "$S3_BUCKET" \
@@ -75,7 +74,6 @@ nixcopy transfer \
   --dest-type blob \
   --dest-container "$BLOB_CONTAINER" \
   --dest-auth-type connection_string \
-  --dest-connection-string "$BLOB_CONN" \
   --dest "archive/mixed/" \
   --concurrent-files 6 \
   --retry-attempts 3
@@ -84,7 +82,7 @@ echo "Done."
 # ── Example 3: Skip files that already exist at the destination ───────────────
 echo ""
 echo "=== Incremental sync: skip files already present at destination ==="
-nixcopy transfer \
+NIXCOPY_DEST_CONNECTION_STRING="$BLOB_CONN" nixcopy transfer \
   --source-type s3 \
   --source-region "$S3_REGION" \
   --source-bucket "$S3_BUCKET" \
@@ -95,7 +93,6 @@ nixcopy transfer \
   --dest-type blob \
   --dest-container "$BLOB_CONTAINER" \
   --dest-auth-type connection_string \
-  --dest-connection-string "$BLOB_CONN" \
   --dest "archive/reports/2024/" \
   --concurrent-files 8 \
   --skip-existing

@@ -62,14 +62,13 @@ echo "(Skipped — requires an EC2/ECS environment)"
 if [[ -n "$AWS_PROFILE" ]]; then
   echo ""
   echo "=== Upload using AWS profile '$AWS_PROFILE' ==="
-  nixcopy transfer \
+  NIXCOPY_DEST_PROFILE="$AWS_PROFILE" nixcopy transfer \
     --source-type local \
     --source "$LOCAL_FILE" \
     --dest-type s3 \
     --dest-region "$S3_REGION" \
     --dest-bucket "$S3_BUCKET" \
     --dest-auth-type profile \
-    --dest-profile "$AWS_PROFILE" \
     --dest "${S3_PREFIX}data-profile.csv"
   echo "Upload complete."
 fi
@@ -92,7 +91,7 @@ if [[ -n "$AWS_ACCESS_KEY" ]]; then
     --dest-access-key "$AWS_ACCESS_KEY" \
     --dest-secret-key "$AWS_SECRET_KEY" \
     --dest "${S3_PREFIX}" \
-    --concurrent-files 4 \
+    --concurrent-files 4
   echo "Batch upload complete."
 fi
 
