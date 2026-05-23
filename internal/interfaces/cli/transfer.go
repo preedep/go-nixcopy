@@ -128,25 +128,25 @@ var transferCmd = &cobra.Command{
 // storageVarSet holds the flag variable pointers for one storage side (source or dest).
 // registerStorageFlags binds all storage flags for a given prefix using this set.
 type storageVarSet struct {
-	storageType      *string
-	host             *string
-	port             *int
-	username         *string
-	password         *string
-	privateKey       *string
-	region           *string
-	bucket           *string
-	accessKey        *string
-	secretKey        *string
-	authType         *string
-	accountName      *string
-	accountKey       *string
-	container        *string
-	tlsMode          *string
-	gcsProject       *string
-	credentialsFile  *string
-	impersonateSA    *string
-	accessToken      *string
+	storageType     *string
+	host            *string
+	port            *int
+	username        *string
+	password        *string
+	privateKey      *string
+	region          *string
+	bucket          *string
+	accessKey       *string
+	secretKey       *string
+	authType        *string
+	accountName     *string
+	accountKey      *string
+	container       *string
+	tlsMode         *string
+	gcsProject      *string
+	credentialsFile *string
+	impersonateSA   *string
+	accessToken     *string
 }
 
 // registerStorageFlags registers the 18 storage flags for a given side prefix ("source" or "dest").
