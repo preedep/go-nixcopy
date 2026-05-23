@@ -135,7 +135,6 @@ func (t *TransferUseCase) Transfer(
 		Status:          entity.TransferStatusPending,
 	}
 
-	// Ensure progress channel is closed when function returns, preventing goroutine leaks
 	if progressChan != nil {
 		defer close(progressChan)
 	}
@@ -145,8 +144,6 @@ func (t *TransferUseCase) Transfer(
 		applog.F("destination", destPath),
 	)
 
-	// Stat the source file to validate it exists and get metadata
-	// This is done before the retry loop to fail fast on non-existent files
 	stat, err := t.source.Stat(ctx, sourcePath)
 	if err != nil {
 		result.Status = entity.TransferStatusFailed
@@ -154,15 +151,10 @@ func (t *TransferUseCase) Transfer(
 		return result, result.Error
 	}
 
-	// Reject directory transfers in single file mode
-	// Use TransferBatch for directory/multiple file operations
 	if stat.IsDirectory {
 		return nil, fmt.Errorf("directory transfer not supported in single file mode")
 	}
 
-	// Skip transfer if destination already holds a file of the same size.
-	// This makes DAG retries idempotent: files that completed in a previous attempt
-	// are not re-transferred.
 	if t.config.SkipExisting {
 		if destStat, err := t.dest.Stat(ctx, destPath); err == nil && destStat.Size == stat.Size {
 			result.Status = entity.TransferStatusSkipped
@@ -184,8 +176,7 @@ func (t *TransferUseCase) Transfer(
 		}
 	}
 
-	// Determine resume capability once — backends either implement Resumer or they don't.
-	// Resume is incompatible with on-the-fly compression (compressed chunks are not appendable).
+	// Determine resume capability once — incompatible with on-the-fly compression.
 	srcResumer, srcCanResume := t.source.(repository.Resumer)
 	destResumer, destCanResume := t.dest.(repository.Resumer)
 	canResume := t.config.EnableResume && srcCanResume && destCanResume && t.config.Compression == ""
@@ -199,220 +190,14 @@ func (t *TransferUseCase) Transfer(
 		)
 	}
 
-	// Retry loop: attempt transfer up to (RetryAttempts + 1) times
-	// This handles transient failures like network timeouts, temporary unavailability, etc.
-	var lastErr error
-	for attempt := 0; attempt <= t.config.RetryAttempts; attempt++ {
-		// Wait before retry (skip on first attempt)
-		if attempt > 0 {
-			t.logger.Warn("Retrying transfer",
-				applog.F("attempt", attempt),
-				applog.F("source", sourcePath),
-			)
-			time.Sleep(t.config.RetryDelay)
-		}
-		t.logger.Debug("transfer attempt",
-			applog.F("attempt", attempt+1),
-			applog.F("max_attempts", t.config.RetryAttempts+1),
-			applog.F("source", sourcePath),
-			applog.F("destination", destPath),
-		)
+	resumeCtx := &resumeContext{
+		srcResumer:  srcResumer,
+		destResumer: destResumer,
+		canResume:   canResume,
+	}
 
-		// Check destination for a partial file and compute resume offset.
-		// Re-evaluated every attempt so each retry picks up where the last one left off.
-		resumeOffset := int64(0)
-		if canResume {
-			if destStat, err := t.dest.Stat(ctx, destPath); err == nil &&
-				destStat.Size > 0 && destStat.Size < stat.Size {
-				resumeOffset = destStat.Size
-				t.logger.InfoReqEx("Resuming interrupted transfer",
-					applog.F("source", sourcePath),
-					applog.F("resume_offset", resumeOffset),
-					applog.F("total_size", stat.Size),
-				)
-			}
-		}
-
-		// Open source file from the correct offset.
-		var reader io.ReadCloser
-		var remaining int64
-		var err error
-		if resumeOffset > 0 {
-			reader, remaining, err = srcResumer.ReadFrom(ctx, sourcePath, resumeOffset)
-		} else {
-			reader, remaining, err = t.source.Read(ctx, sourcePath)
-		}
-		if err != nil {
-			lastErr = fmt.Errorf("failed to read source file: %w", err)
-			t.logger.Debug("attempt failed",
-				applog.F("attempt", attempt+1),
-				applog.F("source", sourcePath),
-				applog.FError(lastErr),
-			)
-			continue
-		}
-
-		// Checksum is only computed for full (non-resumed, non-compressed) transfers.
-		// Compression changes the byte stream so the destination hash would never match.
-		var csReader *checksumReader
-		var streamReader io.Reader = reader
-		if t.config.VerifyChecksum && t.config.Compression != "" {
-			t.logger.Warn("Checksum verification skipped: incompatible with on-the-fly compression",
-				applog.F("source", sourcePath),
-			)
-		} else if t.config.VerifyChecksum && resumeOffset == 0 {
-			csReader = newChecksumReader(reader)
-			streamReader = csReader
-		} else if t.config.VerifyChecksum && resumeOffset > 0 {
-			t.logger.Warn("Checksum verification skipped for resumed transfer",
-				applog.F("source", sourcePath),
-				applog.F("resume_offset", resumeOffset),
-			)
-		}
-
-		if t.config.BandwidthLimit > 0 {
-			streamReader = newThrottledReader(ctx, streamReader, t.config.BandwidthLimit)
-		}
-
-		// Wrap reader with progress tracking.
-		// transferred starts at resumeOffset so percentage display is correct.
-		// Speed is computed from current-session bytes only (see progressReader.Read).
-		pr := &progressReader{
-			reader:        streamReader,
-			total:         stat.Size,
-			transferred:   resumeOffset,
-			initialOffset: resumeOffset,
-			progressChan:  progressChan,
-			fileName:      stat.Name,
-			startTime:     startTime,
-			bufferSize:    t.config.BufferSize,
-		}
-
-		// When compression is active, run a goroutine that pulls from the progress
-		// reader, compresses, and feeds a pipe. dest.Write reads from the pipe.
-		// Progress is tracked on uncompressed bytes so the percentage is correct.
-		writeReader := io.Reader(pr)
-		var compErrCh <-chan error
-		if t.config.Compression != "" {
-			pipeReader, pipeWriter := io.Pipe()
-			errCh := make(chan error, 1)
-			compErrCh = errCh
-			go func() {
-				cw, cerr := newCompressWriter(pipeWriter, t.config.Compression)
-				if cerr != nil {
-					_ = pipeWriter.CloseWithError(cerr)
-					errCh <- cerr
-					return
-				}
-				_, cerr = io.Copy(cw, pr)
-				if closeErr := cw.Close(); cerr == nil {
-					cerr = closeErr
-				}
-				_ = pipeWriter.CloseWithError(cerr)
-				errCh <- cerr
-			}()
-			writeReader = pipeReader
-		}
-
-		// Size is unknown when compressing; pass 0 so backends use default part sizes.
-		writeSize := remaining
-		if t.config.Compression != "" {
-			writeSize = 0
-		}
-
-		// Stream data from source to destination.
-		if resumeOffset > 0 {
-			err = destResumer.AppendWrite(ctx, destPath, writeReader, remaining-resumeOffset, resumeOffset)
-		} else {
-			err = t.dest.Write(ctx, destPath, writeReader, writeSize)
-		}
-		reader.Close()
-
-		// Collect any compression error (non-nil only when compressing).
-		if compErrCh != nil {
-			if compErr := <-compErrCh; err == nil {
-				err = compErr
-			}
-		}
-
-		if err != nil {
-			lastErr = fmt.Errorf("failed to write destination file: %w", err)
-			t.logger.Debug("attempt failed",
-				applog.F("attempt", attempt+1),
-				applog.F("source", sourcePath),
-				applog.FError(lastErr),
-			)
-			continue
-		}
-
-		// Verify checksum when requested: compare SHA256 of sent bytes vs stored bytes
-		if t.config.VerifyChecksum && resumeOffset == 0 && t.config.Compression == "" {
-			sourceChecksum := csReader.sum()
-
-			destReader, _, err := t.dest.Read(ctx, destPath)
-			if err != nil {
-				lastErr = fmt.Errorf("checksum verification: failed to read destination: %w", err)
-				t.logger.Debug("attempt failed",
-					applog.F("attempt", attempt+1),
-					applog.F("source", sourcePath),
-					applog.FError(lastErr),
-				)
-				continue
-			}
-			h := sha256.New()
-			_, hashErr := io.Copy(h, destReader)
-			_ = destReader.Close()
-			if hashErr != nil {
-				lastErr = fmt.Errorf("checksum verification: failed to hash destination: %w", hashErr)
-				t.logger.Debug("attempt failed",
-					applog.F("attempt", attempt+1),
-					applog.F("source", sourcePath),
-					applog.FError(lastErr),
-				)
-				continue
-			}
-			destChecksum := hex.EncodeToString(h.Sum(nil))
-
-			if sourceChecksum != destChecksum {
-				lastErr = fmt.Errorf("checksum mismatch: source=%s destination=%s", sourceChecksum, destChecksum)
-				t.logger.WarnResEx("Checksum mismatch, retrying",
-					applog.F("source", sourcePath),
-					applog.F("source_checksum", sourceChecksum),
-					applog.F("dest_checksum", destChecksum),
-				)
-				continue
-			}
-
-			result.Checksum = sourceChecksum
-			t.logger.InfoResEx("Checksum verified",
-				applog.F("source", sourcePath),
-				applog.F("checksum", sourceChecksum),
-			)
-		}
-
-		result.BytesTransferred = stat.Size
-		result.ResumedFrom = resumeOffset
-		result.Duration = time.Since(startTime)
-		result.Status = entity.TransferStatusCompleted
-
-		t.logger.InfoResEx("Transfer completed",
-			applog.F("source", sourcePath),
-			applog.F("destination", destPath),
-			applog.F("bytes", stat.Size),
-			applog.FDurationMs(result.Duration),
-		)
-
-		if progressChan != nil {
-			progressChan <- entity.TransferProgress{
-				FileName:         stat.Name,
-				TotalBytes:       stat.Size,
-				TransferredBytes: stat.Size,
-				Speed:            float64(stat.Size-resumeOffset) / result.Duration.Seconds(),
-				StartTime:        startTime,
-				Status:           entity.TransferStatusCompleted,
-			}
-		}
-
+	lastErr := t.runWithRetry(ctx, sourcePath, destPath, stat, startTime, progressChan, resumeCtx, result)
+	if lastErr == nil {
 		return result, nil
 	}
 
@@ -437,6 +222,241 @@ func (t *TransferUseCase) Transfer(
 	}
 
 	return result, lastErr
+}
+
+// resumeContext holds the resume-related state computed once before the retry loop.
+type resumeContext struct {
+	srcResumer  repository.Resumer
+	destResumer repository.Resumer
+	canResume   bool
+}
+
+// runWithRetry executes attemptTransfer up to (RetryAttempts+1) times, sleeping RetryDelay between
+// attempts. It returns nil on the first success (and updates result in-place) or the last error.
+func (t *TransferUseCase) runWithRetry(
+	ctx context.Context,
+	sourcePath, destPath string,
+	stat *entity.FileInfo,
+	startTime time.Time,
+	progressChan chan<- entity.TransferProgress,
+	rc *resumeContext,
+	result *entity.TransferResult,
+) error {
+	var lastErr error
+	for attempt := 0; attempt <= t.config.RetryAttempts; attempt++ {
+		if attempt > 0 {
+			t.logger.Warn("Retrying transfer",
+				applog.F("attempt", attempt),
+				applog.F("source", sourcePath),
+			)
+			time.Sleep(t.config.RetryDelay)
+		}
+		t.logger.Debug("transfer attempt",
+			applog.F("attempt", attempt+1),
+			applog.F("max_attempts", t.config.RetryAttempts+1),
+			applog.F("source", sourcePath),
+			applog.F("destination", destPath),
+		)
+
+		checksum, resumeOffset, err := t.attemptTransfer(ctx, sourcePath, destPath, stat, startTime, progressChan, rc)
+		if err != nil {
+			lastErr = err
+			t.logger.Debug("attempt failed",
+				applog.F("attempt", attempt+1),
+				applog.F("source", sourcePath),
+				applog.FError(lastErr),
+			)
+			continue
+		}
+
+		result.Checksum = checksum
+		result.BytesTransferred = stat.Size
+		result.ResumedFrom = resumeOffset
+		result.Duration = time.Since(startTime)
+		result.Status = entity.TransferStatusCompleted
+
+		t.logger.InfoResEx("Transfer completed",
+			applog.F("source", sourcePath),
+			applog.F("destination", destPath),
+			applog.F("bytes", stat.Size),
+			applog.FDurationMs(result.Duration),
+		)
+
+		if progressChan != nil {
+			progressChan <- entity.TransferProgress{
+				FileName:         stat.Name,
+				TotalBytes:       stat.Size,
+				TransferredBytes: stat.Size,
+				Speed:            float64(stat.Size-resumeOffset) / result.Duration.Seconds(),
+				StartTime:        startTime,
+				Status:           entity.TransferStatusCompleted,
+			}
+		}
+
+		return nil
+	}
+	return lastErr
+}
+
+// attemptTransfer performs a single transfer attempt. It opens the source, builds the read
+// pipeline (checksum, throttle, progress, compression), writes to dest, and optionally
+// verifies the checksum. Returns the source checksum (empty if not verified), the resume
+// offset, and any error.
+func (t *TransferUseCase) attemptTransfer(
+	ctx context.Context,
+	sourcePath, destPath string,
+	stat *entity.FileInfo,
+	startTime time.Time,
+	progressChan chan<- entity.TransferProgress,
+	rc *resumeContext,
+) (checksum string, resumeOffset int64, err error) {
+	// Re-evaluate resume offset each attempt so each retry appends from where the last stopped.
+	if rc.canResume {
+		if destStat, statErr := t.dest.Stat(ctx, destPath); statErr == nil &&
+			destStat.Size > 0 && destStat.Size < stat.Size {
+			resumeOffset = destStat.Size
+			t.logger.InfoReqEx("Resuming interrupted transfer",
+				applog.F("source", sourcePath),
+				applog.F("resume_offset", resumeOffset),
+				applog.F("total_size", stat.Size),
+			)
+		}
+	}
+
+	var reader io.ReadCloser
+	var remaining int64
+	if resumeOffset > 0 {
+		reader, remaining, err = rc.srcResumer.ReadFrom(ctx, sourcePath, resumeOffset)
+	} else {
+		reader, remaining, err = t.source.Read(ctx, sourcePath)
+	}
+	if err != nil {
+		return "", resumeOffset, fmt.Errorf("failed to read source file: %w", err)
+	}
+
+	writeReader, csReader, compErrCh := t.buildPipeline(ctx, reader, stat, startTime, resumeOffset, progressChan)
+
+	writeSize := remaining
+	if t.config.Compression != "" {
+		writeSize = 0
+	}
+
+	if resumeOffset > 0 {
+		err = rc.destResumer.AppendWrite(ctx, destPath, writeReader, remaining-resumeOffset, resumeOffset)
+	} else {
+		err = t.dest.Write(ctx, destPath, writeReader, writeSize)
+	}
+	reader.Close()
+
+	if compErrCh != nil {
+		if compErr := <-compErrCh; err == nil {
+			err = compErr
+		}
+	}
+
+	if err != nil {
+		return "", resumeOffset, fmt.Errorf("failed to write destination file: %w", err)
+	}
+
+	if t.config.VerifyChecksum && resumeOffset == 0 && t.config.Compression == "" {
+		sourceChecksum := csReader.sum()
+		destReader, _, readErr := t.dest.Read(ctx, destPath)
+		if readErr != nil {
+			return "", resumeOffset, fmt.Errorf("checksum verification: failed to read destination: %w", readErr)
+		}
+		h := sha256.New()
+		_, hashErr := io.Copy(h, destReader)
+		_ = destReader.Close()
+		if hashErr != nil {
+			return "", resumeOffset, fmt.Errorf("checksum verification: failed to hash destination: %w", hashErr)
+		}
+		destChecksum := hex.EncodeToString(h.Sum(nil))
+
+		if sourceChecksum != destChecksum {
+			t.logger.WarnResEx("Checksum mismatch, retrying",
+				applog.F("source", sourcePath),
+				applog.F("source_checksum", sourceChecksum),
+				applog.F("dest_checksum", destChecksum),
+			)
+			return "", resumeOffset, fmt.Errorf("checksum mismatch: source=%s destination=%s", sourceChecksum, destChecksum)
+		}
+
+		t.logger.InfoResEx("Checksum verified",
+			applog.F("source", sourcePath),
+			applog.F("checksum", sourceChecksum),
+		)
+		return sourceChecksum, resumeOffset, nil
+	}
+
+	return "", resumeOffset, nil
+}
+
+// buildPipeline wraps reader with checksum, throttle, progress, and optional compression layers.
+// It returns the final io.Reader to pass to dest.Write, the checksumReader (nil when not used),
+// and a channel that delivers the compression goroutine's error (nil when not compressing).
+func (t *TransferUseCase) buildPipeline(
+	ctx context.Context,
+	reader io.ReadCloser,
+	stat *entity.FileInfo,
+	startTime time.Time,
+	resumeOffset int64,
+	progressChan chan<- entity.TransferProgress,
+) (writeReader io.Reader, csReader *checksumReader, compErrCh <-chan error) {
+	var streamReader io.Reader = reader
+
+	// Checksum is only computed for full (non-resumed, non-compressed) transfers.
+	if t.config.VerifyChecksum && t.config.Compression != "" {
+		t.logger.Warn("Checksum verification skipped: incompatible with on-the-fly compression")
+	} else if t.config.VerifyChecksum && resumeOffset == 0 {
+		csReader = newChecksumReader(reader)
+		streamReader = csReader
+	} else if t.config.VerifyChecksum && resumeOffset > 0 {
+		t.logger.Warn("Checksum verification skipped for resumed transfer",
+			applog.F("resume_offset", resumeOffset),
+		)
+	}
+
+	if t.config.BandwidthLimit > 0 {
+		streamReader = newThrottledReader(ctx, streamReader, t.config.BandwidthLimit)
+	}
+
+	pr := &progressReader{
+		reader:        streamReader,
+		total:         stat.Size,
+		transferred:   resumeOffset,
+		initialOffset: resumeOffset,
+		progressChan:  progressChan,
+		fileName:      stat.Name,
+		startTime:     startTime,
+		bufferSize:    t.config.BufferSize,
+	}
+
+	writeReader = pr
+
+	// When compressing, a goroutine pulls from the progress reader, compresses, and feeds a pipe.
+	// Progress is tracked on uncompressed bytes so the percentage display is correct.
+	if t.config.Compression != "" {
+		pipeReader, pipeWriter := io.Pipe()
+		errCh := make(chan error, 1)
+		compErrCh = errCh
+		go func() {
+			cw, cerr := newCompressWriter(pipeWriter, t.config.Compression)
+			if cerr != nil {
+				_ = pipeWriter.CloseWithError(cerr)
+				errCh <- cerr
+				return
+			}
+			_, cerr = io.Copy(cw, pr)
+			if closeErr := cw.Close(); cerr == nil {
+				cerr = closeErr
+			}
+			_ = pipeWriter.CloseWithError(cerr)
+			errCh <- cerr
+		}()
+		writeReader = pipeReader
+	}
+
+	return writeReader, csReader, compErrCh
 }
 
 // TransferBatch performs concurrent transfer of multiple files from source to destination.

@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/preedep/go-nixcopy/internal/domain/entity"
+	"github.com/preedep/go-nixcopy/internal/domain/repository"
 	"github.com/preedep/go-nixcopy/internal/infrastructure/config"
 	"github.com/preedep/go-nixcopy/internal/infrastructure/logger"
 	"github.com/preedep/go-nixcopy/internal/infrastructure/storage"
@@ -98,11 +99,79 @@ var (
 	compress        string
 )
 
+// storageFactory abstracts storage construction so tests can inject fakes.
+type storageFactory interface {
+	NewSource(cfg *config.SourceConfig) (repository.Storage, error)
+	NewDest(cfg *config.DestinationConfig) (repository.Storage, error)
+}
+
+type realStorageFactory struct{}
+
+func (realStorageFactory) NewSource(cfg *config.SourceConfig) (repository.Storage, error) {
+	return storage.NewStorageFromSourceConfig(cfg)
+}
+
+func (realStorageFactory) NewDest(cfg *config.DestinationConfig) (repository.Storage, error) {
+	return storage.NewStorageFromDestConfig(cfg)
+}
+
+// activeStorageFactory is replaced by tests to inject mock storage.
+var activeStorageFactory storageFactory = realStorageFactory{}
+
 var transferCmd = &cobra.Command{
 	Use:   "transfer",
 	Short: "Transfer files between storage systems",
 	Long:  `Transfer files from source to destination using streaming for memory efficiency`,
 	RunE:  runTransfer,
+}
+
+// storageVarSet holds the flag variable pointers for one storage side (source or dest).
+// registerStorageFlags binds all storage flags for a given prefix using this set.
+type storageVarSet struct {
+	storageType      *string
+	host             *string
+	port             *int
+	username         *string
+	password         *string
+	privateKey       *string
+	region           *string
+	bucket           *string
+	accessKey        *string
+	secretKey        *string
+	authType         *string
+	accountName      *string
+	accountKey       *string
+	container        *string
+	tlsMode          *string
+	gcsProject       *string
+	credentialsFile  *string
+	impersonateSA    *string
+	accessToken      *string
+}
+
+// registerStorageFlags registers the 18 storage flags for a given side prefix ("source" or "dest").
+// The env var suffix is the upper-cased prefix (e.g. NIXCOPY_SOURCE_HOST).
+func registerStorageFlags(cmd *cobra.Command, prefix string, v *storageVarSet) {
+	up := strings.ToUpper(prefix)
+	cmd.Flags().StringVar(v.storageType, prefix+"-type", "", "Storage type (sftp, ftps, blob, s3) (env: NIXCOPY_"+up+"_TYPE)")
+	cmd.Flags().StringVar(v.host, prefix+"-host", "", "Host (env: NIXCOPY_"+up+"_HOST)")
+	cmd.Flags().IntVar(v.port, prefix+"-port", 0, "Port (env: NIXCOPY_"+up+"_PORT)")
+	cmd.Flags().StringVar(v.username, prefix+"-username", "", "Username (env: NIXCOPY_"+up+"_USERNAME)")
+	cmd.Flags().StringVar(v.password, prefix+"-password", "", "Password (env: NIXCOPY_"+up+"_PASSWORD)")
+	cmd.Flags().StringVar(v.privateKey, prefix+"-private-key", "", "Private key path (env: NIXCOPY_"+up+"_PRIVATE_KEY)")
+	cmd.Flags().StringVar(v.region, prefix+"-region", "", "S3 region (env: NIXCOPY_"+up+"_REGION)")
+	cmd.Flags().StringVar(v.bucket, prefix+"-bucket", "", "S3/GCS bucket (env: NIXCOPY_"+up+"_BUCKET)")
+	cmd.Flags().StringVar(v.accessKey, prefix+"-access-key", "", "Access key (env: NIXCOPY_"+up+"_ACCESS_KEY)")
+	cmd.Flags().StringVar(v.secretKey, prefix+"-secret-key", "", "Secret key (env: NIXCOPY_"+up+"_SECRET_KEY)")
+	cmd.Flags().StringVar(v.authType, prefix+"-auth-type", "", "Auth type (env: NIXCOPY_"+up+"_AUTH_TYPE)")
+	cmd.Flags().StringVar(v.accountName, prefix+"-account-name", "", "Azure account name (env: NIXCOPY_"+up+"_ACCOUNT_NAME)")
+	cmd.Flags().StringVar(v.accountKey, prefix+"-account-key", "", "Azure account key (env: NIXCOPY_"+up+"_ACCOUNT_KEY)")
+	cmd.Flags().StringVar(v.container, prefix+"-container", "", "Azure container (env: NIXCOPY_"+up+"_CONTAINER)")
+	cmd.Flags().StringVar(v.tlsMode, prefix+"-tls-mode", "", "FTPS TLS mode: explicit (STARTTLS, port 21) or implicit (TLS-first, port 990) (env: NIXCOPY_"+up+"_TLS_MODE)")
+	cmd.Flags().StringVar(v.gcsProject, prefix+"-gcs-project", "", "GCS project ID (env: NIXCOPY_"+up+"_GCS_PROJECT)")
+	cmd.Flags().StringVar(v.credentialsFile, prefix+"-credentials-file", "", "GCS service account JSON key file path (env: NIXCOPY_"+up+"_CREDENTIALS_FILE)")
+	cmd.Flags().StringVar(v.impersonateSA, prefix+"-impersonate-service-account", "", "GCS service account to impersonate (env: NIXCOPY_"+up+"_IMPERSONATE_SA)")
+	cmd.Flags().StringVar(v.accessToken, prefix+"-access-token", "", "GCS short-lived OAuth2 access token (env: NIXCOPY_"+up+"_ACCESS_TOKEN)")
 }
 
 func init() {
@@ -116,47 +185,49 @@ func init() {
 		panic(err)
 	}
 
-	// Source storage flags
-	transferCmd.Flags().StringVar(&sourceType, "source-type", "", "Source storage type (sftp, ftps, blob, s3) (env: NIXCOPY_SOURCE_TYPE)")
-	transferCmd.Flags().StringVar(&sourceHost, "source-host", "", "Source host (env: NIXCOPY_SOURCE_HOST)")
-	transferCmd.Flags().IntVar(&sourcePort, "source-port", 0, "Source port (env: NIXCOPY_SOURCE_PORT)")
-	transferCmd.Flags().StringVar(&sourceUsername, "source-username", "", "Source username (env: NIXCOPY_SOURCE_USERNAME)")
-	transferCmd.Flags().StringVar(&sourcePassword, "source-password", "", "Source password (env: NIXCOPY_SOURCE_PASSWORD)")
-	transferCmd.Flags().StringVar(&sourcePrivateKey, "source-private-key", "", "Source private key path (env: NIXCOPY_SOURCE_PRIVATE_KEY)")
-	transferCmd.Flags().StringVar(&sourceRegion, "source-region", "", "Source S3 region (env: NIXCOPY_SOURCE_REGION)")
-	transferCmd.Flags().StringVar(&sourceBucket, "source-bucket", "", "Source S3 bucket (env: NIXCOPY_SOURCE_BUCKET)")
-	transferCmd.Flags().StringVar(&sourceAccessKey, "source-access-key", "", "Source access key (env: NIXCOPY_SOURCE_ACCESS_KEY)")
-	transferCmd.Flags().StringVar(&sourceSecretKey, "source-secret-key", "", "Source secret key (env: NIXCOPY_SOURCE_SECRET_KEY)")
-	transferCmd.Flags().StringVar(&sourceAuthType, "source-auth-type", "", "Source auth type (env: NIXCOPY_SOURCE_AUTH_TYPE)")
-	transferCmd.Flags().StringVar(&sourceAccountName, "source-account-name", "", "Source Azure account name (env: NIXCOPY_SOURCE_ACCOUNT_NAME)")
-	transferCmd.Flags().StringVar(&sourceAccountKey, "source-account-key", "", "Source Azure account key (env: NIXCOPY_SOURCE_ACCOUNT_KEY)")
-	transferCmd.Flags().StringVar(&sourceContainer, "source-container", "", "Source Azure container (env: NIXCOPY_SOURCE_CONTAINER)")
-	transferCmd.Flags().StringVar(&sourceTLSMode, "source-tls-mode", "", "Source FTPS TLS mode: explicit (STARTTLS, port 21) or implicit (TLS-first, port 990) (env: NIXCOPY_SOURCE_TLS_MODE)")
-	transferCmd.Flags().StringVar(&sourceGCSProject, "source-gcs-project", "", "Source GCS project ID (env: NIXCOPY_SOURCE_GCS_PROJECT)")
-	transferCmd.Flags().StringVar(&sourceCredentialsFile, "source-credentials-file", "", "Source GCS service account JSON key file path (env: NIXCOPY_SOURCE_CREDENTIALS_FILE)")
-	transferCmd.Flags().StringVar(&sourceImpersonateSA, "source-impersonate-service-account", "", "Source GCS service account to impersonate (env: NIXCOPY_SOURCE_IMPERSONATE_SA)")
-	transferCmd.Flags().StringVar(&sourceAccessToken, "source-access-token", "", "Source GCS short-lived OAuth2 access token (env: NIXCOPY_SOURCE_ACCESS_TOKEN)")
+	registerStorageFlags(transferCmd, "source", &storageVarSet{
+		storageType:     &sourceType,
+		host:            &sourceHost,
+		port:            &sourcePort,
+		username:        &sourceUsername,
+		password:        &sourcePassword,
+		privateKey:      &sourcePrivateKey,
+		region:          &sourceRegion,
+		bucket:          &sourceBucket,
+		accessKey:       &sourceAccessKey,
+		secretKey:       &sourceSecretKey,
+		authType:        &sourceAuthType,
+		accountName:     &sourceAccountName,
+		accountKey:      &sourceAccountKey,
+		container:       &sourceContainer,
+		tlsMode:         &sourceTLSMode,
+		gcsProject:      &sourceGCSProject,
+		credentialsFile: &sourceCredentialsFile,
+		impersonateSA:   &sourceImpersonateSA,
+		accessToken:     &sourceAccessToken,
+	})
 
-	// Destination storage flags
-	transferCmd.Flags().StringVar(&destType, "dest-type", "", "Destination storage type (sftp, ftps, blob, s3) (env: NIXCOPY_DEST_TYPE)")
-	transferCmd.Flags().StringVar(&destHost, "dest-host", "", "Destination host (env: NIXCOPY_DEST_HOST)")
-	transferCmd.Flags().IntVar(&destPort, "dest-port", 0, "Destination port (env: NIXCOPY_DEST_PORT)")
-	transferCmd.Flags().StringVar(&destUsername, "dest-username", "", "Destination username (env: NIXCOPY_DEST_USERNAME)")
-	transferCmd.Flags().StringVar(&destPassword, "dest-password", "", "Destination password (env: NIXCOPY_DEST_PASSWORD)")
-	transferCmd.Flags().StringVar(&destPrivateKey, "dest-private-key", "", "Destination private key path (env: NIXCOPY_DEST_PRIVATE_KEY)")
-	transferCmd.Flags().StringVar(&destRegion, "dest-region", "", "Destination S3 region (env: NIXCOPY_DEST_REGION)")
-	transferCmd.Flags().StringVar(&destBucket, "dest-bucket", "", "Destination S3 bucket (env: NIXCOPY_DEST_BUCKET)")
-	transferCmd.Flags().StringVar(&destAccessKey, "dest-access-key", "", "Destination access key (env: NIXCOPY_DEST_ACCESS_KEY)")
-	transferCmd.Flags().StringVar(&destSecretKey, "dest-secret-key", "", "Destination secret key (env: NIXCOPY_DEST_SECRET_KEY)")
-	transferCmd.Flags().StringVar(&destAuthType, "dest-auth-type", "", "Destination auth type (env: NIXCOPY_DEST_AUTH_TYPE)")
-	transferCmd.Flags().StringVar(&destAccountName, "dest-account-name", "", "Destination Azure account name (env: NIXCOPY_DEST_ACCOUNT_NAME)")
-	transferCmd.Flags().StringVar(&destAccountKey, "dest-account-key", "", "Destination Azure account key (env: NIXCOPY_DEST_ACCOUNT_KEY)")
-	transferCmd.Flags().StringVar(&destContainer, "dest-container", "", "Destination Azure container (env: NIXCOPY_DEST_CONTAINER)")
-	transferCmd.Flags().StringVar(&destTLSMode, "dest-tls-mode", "", "Destination FTPS TLS mode: explicit (STARTTLS, port 21) or implicit (TLS-first, port 990) (env: NIXCOPY_DEST_TLS_MODE)")
-	transferCmd.Flags().StringVar(&destGCSProject, "dest-gcs-project", "", "Destination GCS project ID (env: NIXCOPY_DEST_GCS_PROJECT)")
-	transferCmd.Flags().StringVar(&destCredentialsFile, "dest-credentials-file", "", "Destination GCS service account JSON key file path (env: NIXCOPY_DEST_CREDENTIALS_FILE)")
-	transferCmd.Flags().StringVar(&destImpersonateSA, "dest-impersonate-service-account", "", "Destination GCS service account to impersonate (env: NIXCOPY_DEST_IMPERSONATE_SA)")
-	transferCmd.Flags().StringVar(&destAccessToken, "dest-access-token", "", "Destination GCS short-lived OAuth2 access token (env: NIXCOPY_DEST_ACCESS_TOKEN)")
+	registerStorageFlags(transferCmd, "dest", &storageVarSet{
+		storageType:     &destType,
+		host:            &destHost,
+		port:            &destPort,
+		username:        &destUsername,
+		password:        &destPassword,
+		privateKey:      &destPrivateKey,
+		region:          &destRegion,
+		bucket:          &destBucket,
+		accessKey:       &destAccessKey,
+		secretKey:       &destSecretKey,
+		authType:        &destAuthType,
+		accountName:     &destAccountName,
+		accountKey:      &destAccountKey,
+		container:       &destContainer,
+		tlsMode:         &destTLSMode,
+		gcsProject:      &destGCSProject,
+		credentialsFile: &destCredentialsFile,
+		impersonateSA:   &destImpersonateSA,
+		accessToken:     &destAccessToken,
+	})
 
 	// Transfer flags
 	transferCmd.Flags().IntVar(&bufferSize, "buffer-size", 0, "Buffer size in bytes (default: 32MB) (env: NIXCOPY_BUFFER_SIZE)")
@@ -269,7 +340,7 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 		cancel()
 	}()
 
-	sourceStorage, err := storage.NewStorageFromSourceConfig(&cfg.Source)
+	sourceStorage, err := activeStorageFactory.NewSource(&cfg.Source)
 	if err != nil {
 		log.ErrorReqEx("failed to initialize source storage",
 			logger.F("type", string(cfg.Source.Type)),
@@ -278,7 +349,7 @@ func runTransfer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create source storage: %w", err)
 	}
 
-	destStorage, err := storage.NewStorageFromDestConfig(&cfg.Destination)
+	destStorage, err := activeStorageFactory.NewDest(&cfg.Destination)
 	if err != nil {
 		log.ErrorReqEx("failed to initialize destination storage",
 			logger.F("type", string(cfg.Destination.Type)),
