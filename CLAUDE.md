@@ -302,3 +302,138 @@ Run results are machine-specific — do not commit numbers to docs. Use the benc
 - **Never** explain what the code does; well-named identifiers already do that.
 
 The existing files (`local.go`, `transfer_usecase.go`, `pattern_matcher.go`) predate this rule and are over-commented — treat them as legacy, not as the style to follow.
+
+---
+
+## Go Patterns
+
+Patterns established in this codebase. Follow them when adding or modifying code.
+
+### Interface injection for testability
+
+Never call package-level constructors directly inside functions that need to be unit-tested. Wrap them behind an interface stored in a package-level variable so tests can swap the implementation:
+
+```go
+// production code
+type storageFactory interface {
+    NewSource(cfg *config.SourceConfig) (repository.Storage, error)
+    NewDest(cfg *config.DestinationConfig) (repository.Storage, error)
+}
+
+type realStorageFactory struct{}
+func (realStorageFactory) NewSource(cfg *config.SourceConfig) (repository.Storage, error) {
+    return storage.NewStorageFromSourceConfig(cfg)
+}
+
+var activeStorageFactory storageFactory = realStorageFactory{}
+
+// test code
+type mockFactory struct{ src, dst *mocks.MockStorage }
+func (f *mockFactory) NewSource(_ *config.SourceConfig) (repository.Storage, error) { return f.src, nil }
+func (f *mockFactory) NewDest(_ *config.DestinationConfig) (repository.Storage, error) { return f.dst, nil }
+
+func withMockFactory(t *testing.T, src, dst *mocks.MockStorage) {
+    orig := activeStorageFactory
+    activeStorageFactory = &mockFactory{src: src, dst: dst}
+    t.Cleanup(func() { activeStorageFactory = orig })
+}
+```
+
+Applied in: `internal/interfaces/cli/transfer.go` (`activeStorageFactory`).
+
+### t.Cleanup over defer in test helpers
+
+Use `t.Cleanup` (not `defer`) to register teardown in test helpers. `defer` runs at the end of the helper function, not the test; `t.Cleanup` runs at the end of the test:
+
+```go
+// correct
+func withMockFactory(t *testing.T, ...) {
+    orig := activeStorageFactory
+    activeStorageFactory = ...
+    t.Cleanup(func() { activeStorageFactory = orig })
+}
+
+// wrong — restores too early
+func withMockFactory(t *testing.T, ...) {
+    orig := activeStorageFactory
+    activeStorageFactory = ...
+    defer func() { activeStorageFactory = orig }()  // runs when helper returns, not when test ends
+}
+```
+
+### resetXxxFlags() in CLI tests
+
+Package-level flag vars bleed state between tests because `init()` sets them once at startup. Every CLI test must call `resetTransferFlags()` as its first line:
+
+```go
+func TestRunTransfer_Something(t *testing.T) {
+    resetTransferFlags()
+    // ... set only the flags this test needs
+}
+```
+
+Never add state cleanup at the end of a test — use `t.Cleanup` or `resetXxx` at the start.
+
+### Verify mock state, not output
+
+CLI tests check observable side effects on the mock (`.WriteCalled`, `.FileContent[path]`) rather than parsing stdout/stderr. This keeps tests fast and decoupled from formatting:
+
+```go
+// correct
+if !dst.WriteCalled {
+    t.Error("expected dest.Write to be called")
+}
+if got := dst.FileContent["/dst/out.txt"]; string(got) != string(want) {
+    t.Errorf("content = %q, want %q", got, want)
+}
+
+// avoid — brittle, slow, tied to output format
+out := captureStdout(...)
+json.Unmarshal(out, &summary)
+```
+
+### Decompose long functions into named steps
+
+When a function exceeds ~50 lines or mixes more than two concerns, extract named private methods rather than adding more inline blocks. Name each method after what it does, not when it runs:
+
+```go
+// good — each method name is self-documenting
+func (t *TransferUseCase) Transfer(...) { ... }          // orchestrator, ~50 lines
+func (t *TransferUseCase) runWithRetry(...) error { ... } // retry loop
+func (t *TransferUseCase) attemptTransfer(...) error { ... } // one attempt
+func (t *TransferUseCase) buildPipeline(...) (io.Reader, ...) { ... } // I/O wiring
+
+// avoid — one giant function with section comments
+func (t *TransferUseCase) Transfer(...) {
+    // --- retry loop ---
+    // --- build pipeline ---
+    // --- verify checksum ---
+}
+```
+
+Applied in: `internal/usecase/transfer_usecase.go`.
+
+### Deduplicate symmetric flag registration
+
+When source and destination share identical flag sets, extract a helper that takes a prefix string and a struct of pointers. This keeps `init()` short and makes it trivial to add a flag to both sides at once:
+
+```go
+type storageVarSet struct {
+    storageType *string
+    host        *string
+    // ...
+}
+
+func registerStorageFlags(cmd *cobra.Command, prefix string, v *storageVarSet) {
+    up := strings.ToUpper(prefix)
+    cmd.Flags().StringVar(v.storageType, prefix+"-type", "", "... (env: NIXCOPY_"+up+"_TYPE)")
+    // ...
+}
+
+func init() {
+    registerStorageFlags(transferCmd, "source", &storageVarSet{storageType: &sourceType, ...})
+    registerStorageFlags(transferCmd, "dest",   &storageVarSet{storageType: &destType,   ...})
+}
+```
+
+Applied in: `internal/interfaces/cli/transfer.go`.
