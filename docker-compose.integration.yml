@@ -1,15 +1,18 @@
 # docker-compose.integration.yml — local integration-test environment
 #
 # Services:
-#   sftp   — atmoz/sftp      port 2222          user: testuser / testpass
-#   ftps   — Dockerfile.ftps-test  port 21, passive 30000-30009  explicit TLS (self-signed, native multi-arch)
-#   minio  — MinIO           port 9000          S3-compatible, user: minioadmin / minioadmin
+#   sftp      — atmoz/sftp           port 2222          user: testuser / testpass
+#   ftps      — Dockerfile.ftps-test port 21, passive 30000-30009  explicit TLS (self-signed, native multi-arch)
+#   minio     — MinIO                port 9000          S3-compatible, user: minioadmin / minioadmin
+#   azurite   — Azurite              port 10000         Azure Blob emulator, fixed devstore credentials
+#   fakegcs   — fake-gcs-server      port 4443          GCS emulator, no auth required
 #
-# test-bucket is created by the Makefile after --wait, not by a one-shot service,
-# because docker compose --wait treats any exited container (even exit 0) as a failure.
+# test-bucket (MinIO) and test-container (Azurite) are created by the Makefile after
+# --wait, not by a one-shot service, because docker compose --wait treats any exited
+# container (even exit 0) as a failure.
 #
 # Usage:
-#   make integration-test-local    # up, create bucket, run tests, down
+#   make integration-test-local    # up, create bucket/container, run tests, down
 #   make integration-test-down     # tear down only
 
 name: nixcopy-integration
@@ -57,6 +60,31 @@ services:
       - "9000:9000"
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:9000/minio/health/live"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
+
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:latest
+    command: azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --skipApiVersionCheck
+    ports:
+      - "10000:10000"
+    healthcheck:
+      # nc exits 0 when the port accepts a connection regardless of HTTP status.
+      test: ["CMD", "nc", "-z", "127.0.0.1", "10000"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
+
+  fakegcs:
+    image: fsouza/fake-gcs-server:latest
+    command: -scheme http -port 4443 -backend memory -public-host localhost:4443
+    ports:
+      - "4443:4443"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4443/storage/v1/b"]
       interval: 2s
       timeout: 5s
       retries: 15

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -74,6 +76,25 @@ func (g *GCSStorage) Connect(ctx context.Context) error {
 
 	if g.config.Endpoint != "" {
 		opts = append(opts, option.WithEndpoint(g.config.Endpoint))
+		// Emulator mode (application_default or empty auth with a custom endpoint):
+		// redirect all HTTP traffic — including the XML API used by NewReader — to
+		// the emulator host, and suppress credential requirements.
+		if g.config.AuthType == appconfig.GCSAuthApplicationDefault || g.config.AuthType == "" {
+			emulatorURL, err := url.Parse(g.config.Endpoint)
+			if err != nil {
+				return fmt.Errorf("invalid GCS endpoint URL: %w", err)
+			}
+			opts = append(opts,
+				option.WithoutAuthentication(),
+				option.WithHTTPClient(&http.Client{
+					Transport: &gcsEmulatorTransport{
+						base:   http.DefaultTransport,
+						host:   emulatorURL.Host,
+						scheme: emulatorURL.Scheme,
+					},
+				}),
+			)
+		}
 	}
 
 	client, err := storage.NewClient(ctx, opts...)
@@ -204,4 +225,41 @@ func (g *GCSStorage) Delete(ctx context.Context, path string) error {
 	}
 
 	return nil
+}
+
+// gcsEmulatorTransport rewrites every outbound request to target fake-gcs-server.
+// The Go GCS SDK uses two HTTP APIs:
+//   - JSON API: /storage/v1/... — routed correctly by option.WithEndpoint
+//   - XML API:  /<bucket>/<object> — used by NewReader; fake-gcs serves this at
+//     /download/storage/v1/b/<bucket>/o/<object>?alt=media
+//
+// This transport fixes both: it redirects all host:port to the emulator and
+// rewrites XML-style paths to the fake-gcs download path.
+type gcsEmulatorTransport struct {
+	base   http.RoundTripper
+	host   string
+	scheme string
+}
+
+func (t *gcsEmulatorTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	clone := req.Clone(req.Context())
+	clone.URL.Host = t.host
+	clone.URL.Scheme = t.scheme
+	clone.Host = t.host
+
+	// Rewrite XML API path "/<bucket>/<object>" → fake-gcs download path.
+	// XML paths have exactly two non-empty segments and no leading /storage/ prefix.
+	p := clone.URL.Path
+	if !strings.HasPrefix(p, "/storage/") && !strings.HasPrefix(p, "/upload/") && !strings.HasPrefix(p, "/download/") {
+		// strip leading slash, split into bucket + object
+		parts := strings.SplitN(strings.TrimPrefix(p, "/"), "/", 2)
+		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+			clone.URL.Path = "/download/storage/v1/b/" + parts[0] + "/o/" + parts[1]
+			q := clone.URL.Query()
+			q.Set("alt", "media")
+			clone.URL.RawQuery = q.Encode()
+		}
+	}
+
+	return t.base.RoundTrip(clone)
 }
