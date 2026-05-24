@@ -42,5 +42,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          FURY_TOKEN: ${{ secrets.FURY_TOKEN }}
-          FURY_ACCOUNT: ${{ secrets.FURY_ACCOUNT }}
+          # FURY_TOKEN and FURY_ACCOUNT removed — re-add when Fury account is ready
+          # FURY_TOKEN: ${{ secrets.FURY_TOKEN }}
+          # FURY_ACCOUNT: ${{ secrets.FURY_ACCOUNT }}
