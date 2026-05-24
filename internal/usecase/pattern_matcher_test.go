@@ -240,6 +240,56 @@ func TestPatternMatcher_MatchFiles_ListError(t *testing.T) {
 	}
 }
 
+func TestPatternMatcher_MatchesPattern_RecursivePrefixMismatch(t *testing.T) {
+	storage := mocks.NewMockStorage()
+	logger := applog.NewNopLogger()
+	matcher := NewPatternMatcher(storage, logger)
+
+	// "data/**/*.pdf" with a path under "other/" — prefix does not match
+	fp := entity.NewFilePattern("data/**/*.pdf")
+	if matcher.matchesPattern("/other/report.pdf", fp) {
+		t.Error("expected false for prefix mismatch in recursive pattern, got true")
+	}
+}
+
+func TestPatternMatcher_MatchesPattern_RecursiveSuffixNoMatch(t *testing.T) {
+	storage := mocks.NewMockStorage()
+	logger := applog.NewNopLogger()
+	matcher := NewPatternMatcher(storage, logger)
+
+	// "data/**/*.pdf" — correct prefix but wrong extension
+	fp := entity.NewFilePattern("data/**/*.pdf")
+	if matcher.matchesPattern("data/2024/report.txt", fp) {
+		t.Error("expected false for suffix mismatch in recursive pattern, got true")
+	}
+}
+
+func TestPatternMatcher_MatchesPattern_SimpleWildcard_FullPathNoMatch(t *testing.T) {
+	storage := mocks.NewMockStorage()
+	logger := applog.NewNopLogger()
+	matcher := NewPatternMatcher(storage, logger)
+
+	// Pattern contains "/" so match is against full path, not just basename
+	fp := entity.NewFilePattern("data/*.pdf")
+	if matcher.matchesPattern("/other/report.pdf", fp) {
+		t.Error("expected false for full-path wildcard mismatch, got true")
+	}
+}
+
+func TestPatternMatcher_MatchesPattern_RecursiveSuffix_InvalidPattern(t *testing.T) {
+	storage := mocks.NewMockStorage()
+	logger := applog.NewNopLogger()
+	matcher := NewPatternMatcher(storage, logger)
+
+	// An invalid glob character ('[' without closing ']') makes filepath.Match return an error.
+	// The branch at err != nil || !matched returns false.
+	fp := entity.NewFilePattern("data/**/[invalid")
+	result := matcher.matchesPattern("data/sub/file.txt", fp)
+	if result {
+		t.Error("expected false for invalid glob suffix pattern, got true")
+	}
+}
+
 func TestPatternMatcher_MatchFiles_NoMatches(t *testing.T) {
 	storage := mocks.NewMockStorage()
 	logger := applog.NewNopLogger()

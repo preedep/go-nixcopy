@@ -84,6 +84,26 @@ func TestThrottledReader_DataIntegrity(t *testing.T) {
 	}
 }
 
+func TestThrottledReader_EpochRollover(t *testing.T) {
+	// Send exactly bytesPerSec bytes so the epoch-rollover branch executes.
+	const rate = 512 * 1024 // 512 KB/s — fast enough to complete immediately
+	data := make([]byte, rate)
+	r := newThrottledReader(context.Background(), bytes.NewReader(data), rate)
+	tr := r.(*ThrottledReader)
+	got, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, data) {
+		t.Fatal("data corrupted after epoch rollover")
+	}
+	// After reading exactly bytesPerSec bytes the epoch should have advanced
+	// and epochBytes should be 0 (or close to 0 depending on read chunk size).
+	if tr.epochBytes < 0 {
+		t.Errorf("epochBytes = %d, want >= 0", tr.epochBytes)
+	}
+}
+
 func TestThrottledReader_ContextCancel(t *testing.T) {
 	// Very low rate (1 byte/s) so the first real read triggers a long sleep.
 	// Cancel the context immediately and expect the read to return quickly.

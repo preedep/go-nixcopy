@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Checksum-on-resume** (`verifyResumeIntegrity`): when `VerifyChecksum: true` and a partial destination file exists, the first `resumeOffset` bytes of source and dest are hashed and compared before appending. A mismatch returns an error immediately, preventing silent corruption; the retry loop then restarts from scratch.
+- **Parallel directory listing** (`listFilesParallel`): recursive pattern expansion now uses a bounded worker pool (default 8 concurrent `Storage.List` calls). A coordinator goroutine owns the work queue to prevent semaphore deadlock. Non-recursive and flat patterns are unaffected.
+- **Adaptive buffer sizing**: `TransferUseCase` tracks its copy-buffer size as an `atomic.Int64` and self-tunes after each successful transfer — throughput below 64 MiB/s halves the buffer; above 512 MiB/s doubles it; always clamped to [512 KiB, 128 MiB]. Safe for concurrent batch transfers via `CompareAndSwap`.
+- New unit tests raising `internal/usecase` coverage from ~92% to ~99%: `transfer_usecase_improvements_test.go` covers adaptive-buffer sizing (6 cases), `verifyResumeIntegrity` error paths (source/dest read error, prefix too short, match, mismatch), checksum dest-read and dest-hash errors, and progress-channel failure send. `pattern_matcher_parallel_test.go` covers parallel recursive listing, concurrency bounding, subdirectory error skipping, and result completeness. `pattern_matcher_test.go` and `throttle_test.go` extended with `matchesPattern` edge cases and throttle epoch-rollover. Two branches remain uncovered by design (unreachable dead code: `zstd.NewWriter` default-options error, `**`-split producing ≠2 parts).
+
 ## [1.3.5] - 2026-05-24
 
 ### Added

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	applog "github.com/preedep/go-nixcopy/internal/infrastructure/logger"
 
@@ -13,99 +14,34 @@ import (
 	"github.com/preedep/go-nixcopy/internal/domain/repository"
 )
 
+// defaultListParallelism is the default number of concurrent Storage.List calls.
+const defaultListParallelism = 8
+
 // PatternMatcher handles file pattern matching and expansion for wildcard-based file discovery.
-//
-// It supports various wildcard patterns including:
-//   - Simple wildcards: *.pdf, report*.xlsx, file?.txt
-//   - Character classes: file[0-9].txt, [a-z]*.doc
-//   - Recursive patterns: **/*.log, data/**/*.csv
-//
-// The matcher works by:
-//  1. Extracting the base path (non-wildcard prefix) from the pattern
-//  2. Listing files from the base path
-//  3. Recursively traversing subdirectories if pattern contains **
-//  4. Matching each file against the pattern using filepath.Match
-//
-// Performance Considerations:
-// For patterns like "**/*.log", the matcher will traverse the entire directory tree
-// starting from the base path. This can be slow for large directory structures.
-// Consider using more specific base paths when possible (e.g., "logs/**/*.log" instead of "**/*.log").
-//
-// Thread Safety:
-// PatternMatcher is safe for concurrent use. Multiple goroutines can call
-// MatchFiles() simultaneously on the same instance.
+// Recursive traversal uses a bounded goroutine pool to list subdirectories in parallel.
 type PatternMatcher struct {
-	storage repository.StorageReader // Storage reader for listing and accessing files
-	logger  *applog.StandardLogger   // Structured logger for debugging pattern matching
+	storage      repository.StorageReader
+	logger       *applog.StandardLogger
+	listParallel int // max concurrent Storage.List calls; defaults to defaultListParallelism
 }
 
 // NewPatternMatcher creates a new PatternMatcher instance.
-//
-// Parameters:
-//   - storage: Storage reader for listing files and directories
-//   - logger: Structured logger for tracking pattern matching operations
-//
-// The returned matcher is ready to use and safe for concurrent access.
-//
-// Example:
-//
-//	matcher := NewPatternMatcher(storageReader, logger)
-//	files, err := matcher.MatchFiles(ctx, "logs/**/*.log")
 func NewPatternMatcher(storage repository.StorageReader, logger *applog.StandardLogger) *PatternMatcher {
 	return &PatternMatcher{
-		storage: storage,
-		logger:  logger,
+		storage:      storage,
+		logger:       logger,
+		listParallel: defaultListParallelism,
 	}
 }
 
 // MatchFiles finds all files matching the given pattern.
-//
-// The method supports various wildcard patterns:
-//   - "*.pdf" - all PDF files in base directory
-//   - "report*.xlsx" - files starting with "report" and ending with .xlsx
-//   - "**/*.log" - all .log files in base directory and subdirectories (recursive)
-//   - "data/2024/**/*.csv" - all CSV files under data/2024/ and its subdirectories
-//
-// Parameters:
-//   - ctx: Context for cancellation and timeout control
-//   - pattern: File pattern with optional wildcards (*, ?, [], **)
-//
-// Returns:
-//   - []string: Slice of matched file paths (absolute paths from storage root)
-//   - error: Non-nil if listing fails or pattern is invalid
-//
-// Behavior:
-//   - If pattern contains no wildcards, returns the pattern as-is (single file)
-//   - Extracts base path (non-wildcard prefix) for efficient directory traversal
-//   - Recursively traverses subdirectories if pattern contains **
-//   - Skips subdirectories that fail to list (logs warning, continues)
-//   - Returns empty slice if no files match (not an error)
-//
-// Performance:
-// Recursive patterns (**) can be slow on large directory trees.
-// Time complexity: O(n) where n is the number of files/directories traversed.
-// For better performance, use specific base paths (e.g., "logs/**/*.log" vs "**/*.log").
-//
-// Example:
-//
-//	// Match all PDF files in documents directory
-//	files, err := matcher.MatchFiles(ctx, "documents/*.pdf")
-//	// files = ["/documents/report.pdf", "/documents/invoice.pdf"]
-//
-//	// Match all log files recursively
-//	files, err := matcher.MatchFiles(ctx, "**/*.log")
-//	// files = ["/app.log", "/logs/error.log", "/logs/2024/access.log"]
 func (pm *PatternMatcher) MatchFiles(ctx context.Context, pattern string) ([]string, error) {
 	filePattern := entity.NewFilePattern(pattern)
 
-	// Fast path: if no wildcards, return pattern as-is
-	// This avoids unnecessary directory listing for exact file paths
 	if !filePattern.IsWildcard {
 		return []string{pattern}, nil
 	}
 
-	// Extract base path (non-wildcard prefix) for efficient traversal
-	// Example: "data/2024/**/*.csv" -> base path = "data/2024"
 	basePath := pm.getBasePath(pattern)
 
 	pm.logger.Info("Matching files",
@@ -114,7 +50,7 @@ func (pm *PatternMatcher) MatchFiles(ctx context.Context, pattern string) ([]str
 		applog.F("is_recursive", filePattern.IsRecursive),
 	)
 
-	files, err := pm.listFilesRecursive(ctx, basePath, filePattern)
+	files, err := pm.listFilesParallel(ctx, basePath, filePattern)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list files: %w", err)
 	}
@@ -128,25 +64,6 @@ func (pm *PatternMatcher) MatchFiles(ctx context.Context, pattern string) ([]str
 }
 
 // getBasePath extracts the non-wildcard prefix from a file pattern.
-//
-// This method identifies the longest path prefix that doesn't contain wildcards,
-// which serves as the starting point for directory traversal.
-//
-// Examples:
-//   - "data/2024/**/*.csv" -> "data/2024"
-//   - "*.pdf" -> "/" (root)
-//   - "logs/app*.log" -> "logs"
-//   - "/var/log/**/*.log" -> "/var/log"
-//
-// Algorithm:
-// Splits the pattern by "/" and iterates through parts until finding one
-// containing wildcards (*, ?, []). Returns the path up to that point.
-//
-// Returns:
-//   - Base path string (always starts with / if absolute, or relative path)
-//   - "/" if pattern starts with a wildcard
-//
-// Performance: O(n) where n is the number of path components.
 func (pm *PatternMatcher) getBasePath(pattern string) string {
 	parts := strings.Split(pattern, "/")
 	baseParts := []string{}
@@ -167,119 +84,112 @@ func (pm *PatternMatcher) getBasePath(pattern string) string {
 	return strings.Join(baseParts, "/")
 }
 
-// listFilesRecursive recursively lists and filters files matching the pattern.
-//
-// This is the core recursive traversal function that:
-//  1. Lists all files/directories in the current path
-//  2. For each directory: recursively descends if pattern is recursive (**)
-//  3. For each file: checks if it matches the pattern
-//  4. Accumulates all matching file paths
-//
-// Parameters:
-//   - ctx: Context for cancellation
-//   - basePath: Current directory path to list
-//   - pattern: File pattern to match against
-//
-// Returns:
-//   - []string: All matching file paths found in this directory and subdirectories
-//   - error: Non-nil if listing the base path fails
-//
-// Error Handling:
-// If a subdirectory fails to list, the error is logged and that subdirectory
-// is skipped. The function continues processing other directories.
-// This prevents a single permission error from stopping the entire traversal.
-//
-// Performance:
-// Time complexity: O(n) where n is total files/directories traversed.
-// Space complexity: O(d) where d is maximum directory depth (recursion stack).
-//
-// Example traversal for pattern "**/*.log":
-//
-//	/app/
-//	  app.log        -> matched
-//	  data/
-//	    file.txt     -> not matched
-//	  logs/
-//	    error.log    -> matched
-//	    2024/
-//	      access.log -> matched
-func (pm *PatternMatcher) listFilesRecursive(
+// listFilesParallel lists and filters files using a bounded worker pool for concurrent
+// subdirectory traversal. It uses a work-queue goroutine to avoid semaphore deadlocks
+// that arise when workers try to enqueue their own children.
+func (pm *PatternMatcher) listFilesParallel(
 	ctx context.Context,
 	basePath string,
 	pattern *entity.FilePattern,
 ) ([]string, error) {
-	var matchedFiles []string
-
-	// List all files and directories in current path
-	files, err := pm.storage.List(ctx, basePath)
+	// List the root directory first to detect hard errors early.
+	rootEntries, err := pm.storage.List(ctx, basePath)
 	if err != nil {
 		return nil, err
 	}
 
-	// Process each entry (file or directory)
-	for _, file := range files {
-		if file.IsDirectory {
-			// Recursively traverse subdirectories if pattern is recursive (**)
+	type workItem struct{ path string }
+	type result struct {
+		matched []string
+		dirs    []string
+	}
+
+	work := make(chan workItem, 256)
+	results := make(chan result, 256)
+	errs := make(chan error, 1)
+
+	var wg sync.WaitGroup
+
+	// Seed the initial directory queue and collect root-level matches.
+	var initMatched []string
+	for _, entry := range rootEntries {
+		if entry.IsDirectory {
 			if pattern.IsRecursive {
-				subFiles, err := pm.listFilesRecursive(ctx, file.Path, pattern)
-				if err != nil {
-					// Log warning but continue processing other directories
-					// This handles permission errors gracefully
-					pm.logger.Warn("Failed to list subdirectory",
-						applog.F("path", file.Path),
-						applog.FError(err),
-					)
-					continue
-				}
-				// Accumulate matches from subdirectory
-				matchedFiles = append(matchedFiles, subFiles...)
+				wg.Add(1)
+				work <- workItem{entry.Path}
 			}
-		} else {
-			// Check if file matches the pattern
-			if pm.matchesPattern(file.Path, pattern) {
-				matchedFiles = append(matchedFiles, file.Path)
-			}
+		} else if pm.matchesPattern(entry.Path, pattern) {
+			initMatched = append(initMatched, entry.Path)
 		}
 	}
 
-	return matchedFiles, nil
+	// Workers: list one directory, publish result.
+	for i := 0; i < pm.listParallel; i++ {
+		go func() {
+			for item := range work {
+				entries, listErr := pm.storage.List(ctx, item.path)
+				if listErr != nil {
+					pm.logger.Warn("Failed to list subdirectory",
+						applog.F("path", item.path),
+						applog.FError(listErr),
+					)
+					select {
+					case errs <- listErr:
+					default:
+					}
+					wg.Done()
+					continue
+				}
+
+				var r result
+				for _, entry := range entries {
+					if entry.IsDirectory {
+						r.dirs = append(r.dirs, entry.Path)
+					} else if pm.matchesPattern(entry.Path, pattern) {
+						r.matched = append(r.matched, entry.Path)
+					}
+				}
+				results <- r
+				// wg.Done() is called by the coordinator after processing this result.
+			}
+		}()
+	}
+
+	// Coordinator: drain results, enqueue newly discovered dirs, call wg.Done.
+	// Runs in its own goroutine so workers and coordinator never block each other.
+	done := make(chan []string)
+	go func() {
+		var all []string
+		all = append(all, initMatched...)
+		for r := range results {
+			wg.Done() // one work item consumed
+			all = append(all, r.matched...)
+			if pattern.IsRecursive {
+				for _, dir := range r.dirs {
+					wg.Add(1)
+					work <- workItem{dir}
+				}
+			}
+		}
+		done <- all
+	}()
+
+	wg.Wait()
+	close(work)
+	close(results)
+
+	matched := <-done
+
+	select {
+	case firstErr := <-errs:
+		_ = firstErr // sub-directory errors are logged; we still return partial results
+	default:
+	}
+
+	return matched, nil
 }
 
-// matchesPattern checks if a file path matches the given pattern.
-//
-// This method handles three types of patterns:
-//  1. Exact match: No wildcards, direct string comparison
-//  2. Recursive pattern: Contains **, matches across directory levels
-//  3. Simple wildcard: Contains *, ?, or [], matches filename only
-//
-// Parameters:
-//   - path: Full file path to check (e.g., "/data/2024/report.pdf")
-//   - pattern: File pattern to match against
-//
-// Returns:
-//   - bool: true if path matches pattern, false otherwise
-//
-// Pattern Matching Logic:
-//
-// For recursive patterns (e.g., "data/**/*.pdf"):
-//  1. Split pattern by ** into prefix and suffix
-//  2. Check if path starts with prefix (if prefix exists)
-//  3. Match suffix against filename using filepath.Match
-//
-// For simple wildcards (e.g., "*.pdf"):
-//  1. Extract filename from path using filepath.Base
-//  2. Match pattern against filename using filepath.Match
-//
-// Examples:
-//   - matchesPattern("/data/report.pdf", "*.pdf") -> true
-//   - matchesPattern("/data/2024/report.pdf", "**/*.pdf") -> true
-//   - matchesPattern("/data/2024/report.pdf", "data/**/*.pdf") -> true
-//   - matchesPattern("/other/report.pdf", "data/**/*.pdf") -> false
-//
-// Edge Cases:
-//   - Returns false if filepath.Match returns an error (invalid pattern)
-//   - Empty prefix in recursive pattern matches any directory
-//   - Empty suffix in recursive pattern matches any filename
+// matchesPattern reports whether path matches the file pattern.
 func (pm *PatternMatcher) matchesPattern(path string, pattern *entity.FilePattern) bool {
 	// Fast path: exact match (no wildcards)
 	if !pattern.IsWildcard {

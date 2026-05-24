@@ -11,6 +11,7 @@ import (
 	"io"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	applog "github.com/preedep/go-nixcopy/internal/infrastructure/logger"
@@ -29,27 +30,25 @@ var transferBufPool = sync.Pool{
 	},
 }
 
+// minAdaptiveBuf is the floor for adaptive buffer sizing (512 KiB).
+const minAdaptiveBuf = 512 * 1024
+
+// maxAdaptiveBuf is the ceiling for adaptive buffer sizing (128 MiB).
+const maxAdaptiveBuf = 128 * 1024 * 1024
+
+// adaptiveLowBytesPerSec — below this throughput the buffer is halved (64 MiB/s).
+const adaptiveLowBytesPerSec = 64 * 1024 * 1024
+
+// adaptiveHighBytesPerSec — above this throughput the buffer is doubled (512 MiB/s).
+const adaptiveHighBytesPerSec = 512 * 1024 * 1024
+
 // TransferUseCase implements the core file transfer business logic.
-// It handles single and batch file transfers with the following features:
-//   - Streaming I/O to minimize memory usage (only bufferSize bytes in memory at a time)
-//   - Automatic retry mechanism with configurable attempts and delays
-//   - Real-time progress tracking with speed calculation and ETA
-//   - Concurrent batch transfers with semaphore-based concurrency control
-//   - Context-aware cancellation support
-//
-// Memory Efficiency:
-// The implementation uses streaming I/O, meaning it never loads entire files into memory.
-// Memory usage is bounded by: bufferSize * concurrentFiles + overhead
-// For example: 32MB buffer * 4 concurrent files = ~128MB maximum memory usage
-//
-// Thread Safety:
-// TransferUseCase is safe for concurrent use. Multiple goroutines can call
-// Transfer() or TransferBatch() simultaneously on the same instance.
 type TransferUseCase struct {
-	source repository.StorageReader // Source storage for reading files
-	dest   repository.Storage       // Destination storage (read back needed for checksum verification)
-	config *entity.TransferConfig   // Transfer configuration (buffer size, retries, etc.)
-	logger *applog.StandardLogger   // Structured logger for operational visibility
+	source     repository.StorageReader
+	dest       repository.Storage
+	config     *entity.TransferConfig
+	logger     *applog.StandardLogger
+	bufferSize atomic.Int64 // current adaptive buffer size; starts at config.BufferSize
 }
 
 // NewTransferUseCase creates a new TransferUseCase instance.
@@ -78,12 +77,14 @@ func NewTransferUseCase(
 	config *entity.TransferConfig,
 	logger *applog.StandardLogger,
 ) service.TransferService {
-	return &TransferUseCase{
+	uc := &TransferUseCase{
 		source: source,
 		dest:   dest,
 		config: config,
 		logger: logger,
 	}
+	uc.bufferSize.Store(int64(config.BufferSize))
+	return uc
 }
 
 // Transfer performs a single file transfer from source to destination with retry logic and progress tracking.
@@ -267,7 +268,7 @@ func (t *TransferUseCase) runWithRetry(
 			applog.F("destination", destPath),
 		)
 
-		checksum, resumeOffset, err := t.attemptTransfer(ctx, sourcePath, destPath, stat, startTime, progressChan, rc)
+		checksum, resumeOffset, bps, err := t.attemptTransfer(ctx, sourcePath, destPath, stat, startTime, progressChan, rc)
 		if err != nil {
 			lastErr = err
 			t.logger.Debug("attempt failed",
@@ -277,6 +278,8 @@ func (t *TransferUseCase) runWithRetry(
 			)
 			continue
 		}
+
+		t.adaptBufferSize(bps)
 
 		result.Checksum = checksum
 		result.BytesTransferred = stat.Size
@@ -310,7 +313,7 @@ func (t *TransferUseCase) runWithRetry(
 // attemptTransfer performs a single transfer attempt. It opens the source, builds the read
 // pipeline (checksum, throttle, progress, compression), writes to dest, and optionally
 // verifies the checksum. Returns the source checksum (empty if not verified), the resume
-// offset, and any error.
+// offset, measured throughput in bytes/sec, and any error.
 func (t *TransferUseCase) attemptTransfer(
 	ctx context.Context,
 	sourcePath, destPath string,
@@ -318,7 +321,7 @@ func (t *TransferUseCase) attemptTransfer(
 	startTime time.Time,
 	progressChan chan<- entity.TransferProgress,
 	rc *resumeContext,
-) (checksum string, resumeOffset int64, err error) {
+) (checksum string, resumeOffset int64, bytesPerSec float64, err error) {
 	// Re-evaluate resume offset each attempt so each retry appends from where the last stopped.
 	if rc.canResume {
 		if destStat, statErr := t.dest.Stat(ctx, destPath); statErr == nil &&
@@ -332,6 +335,13 @@ func (t *TransferUseCase) attemptTransfer(
 		}
 	}
 
+	// Verify existing dest bytes match source before appending to avoid silent corruption.
+	if resumeOffset > 0 && t.config.VerifyChecksum && t.config.Compression == "" {
+		if verifyErr := t.verifyResumeIntegrity(ctx, sourcePath, destPath, resumeOffset); verifyErr != nil {
+			return "", resumeOffset, 0, verifyErr
+		}
+	}
+
 	var reader io.ReadCloser
 	var remaining int64
 	if resumeOffset > 0 {
@@ -340,7 +350,7 @@ func (t *TransferUseCase) attemptTransfer(
 		reader, remaining, err = t.source.Read(ctx, sourcePath)
 	}
 	if err != nil {
-		return "", resumeOffset, fmt.Errorf("failed to read source file: %w", err)
+		return "", resumeOffset, 0, fmt.Errorf("failed to read source file: %w", err)
 	}
 
 	writeReader, csReader, compErrCh := t.buildPipeline(ctx, reader, stat, startTime, resumeOffset, progressChan)
@@ -350,6 +360,7 @@ func (t *TransferUseCase) attemptTransfer(
 		writeSize = 0
 	}
 
+	ioStart := time.Now()
 	if resumeOffset > 0 {
 		err = rc.destResumer.AppendWrite(ctx, destPath, writeReader, remaining-resumeOffset, resumeOffset)
 	} else {
@@ -364,20 +375,26 @@ func (t *TransferUseCase) attemptTransfer(
 	}
 
 	if err != nil {
-		return "", resumeOffset, fmt.Errorf("failed to write destination file: %w", err)
+		return "", resumeOffset, 0, fmt.Errorf("failed to write destination file: %w", err)
+	}
+
+	elapsed := time.Since(ioStart).Seconds()
+	transferred := stat.Size - resumeOffset
+	if elapsed > 0 && transferred > 0 {
+		bytesPerSec = float64(transferred) / elapsed
 	}
 
 	if t.config.VerifyChecksum && resumeOffset == 0 && t.config.Compression == "" {
 		sourceChecksum := csReader.sum()
 		destReader, _, readErr := t.dest.Read(ctx, destPath)
 		if readErr != nil {
-			return "", resumeOffset, fmt.Errorf("checksum verification: failed to read destination: %w", readErr)
+			return "", resumeOffset, bytesPerSec, fmt.Errorf("checksum verification: failed to read destination: %w", readErr)
 		}
 		h := sha256.New()
 		_, hashErr := io.Copy(h, destReader)
 		_ = destReader.Close()
 		if hashErr != nil {
-			return "", resumeOffset, fmt.Errorf("checksum verification: failed to hash destination: %w", hashErr)
+			return "", resumeOffset, bytesPerSec, fmt.Errorf("checksum verification: failed to hash destination: %w", hashErr)
 		}
 		destChecksum := hex.EncodeToString(h.Sum(nil))
 
@@ -387,17 +404,95 @@ func (t *TransferUseCase) attemptTransfer(
 				applog.F("source_checksum", sourceChecksum),
 				applog.F("dest_checksum", destChecksum),
 			)
-			return "", resumeOffset, fmt.Errorf("checksum mismatch: source=%s destination=%s", sourceChecksum, destChecksum)
+			return "", resumeOffset, bytesPerSec, fmt.Errorf("checksum mismatch: source=%s destination=%s", sourceChecksum, destChecksum)
 		}
 
 		t.logger.InfoResEx("Checksum verified",
 			applog.F("source", sourcePath),
 			applog.F("checksum", sourceChecksum),
 		)
-		return sourceChecksum, resumeOffset, nil
+		return sourceChecksum, resumeOffset, bytesPerSec, nil
 	}
 
-	return "", resumeOffset, nil
+	return "", resumeOffset, bytesPerSec, nil
+}
+
+// verifyResumeIntegrity hashes the first resumeOffset bytes from both source and dest and
+// returns an error if they differ. This ensures a partial dest file was not corrupted before
+// we append more bytes to it.
+func (t *TransferUseCase) verifyResumeIntegrity(ctx context.Context, sourcePath, destPath string, resumeOffset int64) error {
+	srcReader, _, err := t.source.Read(ctx, sourcePath)
+	if err != nil {
+		return fmt.Errorf("resume integrity: failed to open source: %w", err)
+	}
+	defer srcReader.Close()
+
+	destReader, _, err := t.dest.Read(ctx, destPath)
+	if err != nil {
+		return fmt.Errorf("resume integrity: failed to open dest: %w", err)
+	}
+	defer destReader.Close()
+
+	srcH := sha256.New()
+	if _, err := io.CopyN(srcH, srcReader, resumeOffset); err != nil {
+		return fmt.Errorf("resume integrity: failed to hash source prefix: %w", err)
+	}
+
+	destH := sha256.New()
+	if _, err := io.CopyN(destH, destReader, resumeOffset); err != nil {
+		return fmt.Errorf("resume integrity: failed to hash dest prefix: %w", err)
+	}
+
+	srcSum := hex.EncodeToString(srcH.Sum(nil))
+	destSum := hex.EncodeToString(destH.Sum(nil))
+	if srcSum != destSum {
+		t.logger.WarnResEx("Resume integrity check failed — dest prefix corrupted, restarting from zero",
+			applog.F("source", sourcePath),
+			applog.F("resume_offset", resumeOffset),
+			applog.F("source_prefix_checksum", srcSum),
+			applog.F("dest_prefix_checksum", destSum),
+		)
+		return fmt.Errorf("resume integrity mismatch at offset %d: source=%s dest=%s", resumeOffset, srcSum, destSum)
+	}
+
+	t.logger.Info("Resume integrity verified",
+		applog.F("source", sourcePath),
+		applog.F("resume_offset", resumeOffset),
+	)
+	return nil
+}
+
+// adaptBufferSize adjusts t.bufferSize based on the observed transfer throughput.
+// Below adaptiveLowBytesPerSec the buffer is halved; above adaptiveHighBytesPerSec it is doubled.
+// The result is clamped to [minAdaptiveBuf, maxAdaptiveBuf].
+// bps == 0 means the measurement was unavailable; no change is made in that case.
+func (t *TransferUseCase) adaptBufferSize(bps float64) {
+	if bps <= 0 {
+		return
+	}
+	cur := t.bufferSize.Load()
+	var next int64
+	switch {
+	case bps < adaptiveLowBytesPerSec:
+		next = cur / 2
+	case bps > adaptiveHighBytesPerSec:
+		next = cur * 2
+	default:
+		return
+	}
+	if next < minAdaptiveBuf {
+		next = minAdaptiveBuf
+	}
+	if next > maxAdaptiveBuf {
+		next = maxAdaptiveBuf
+	}
+	if next != cur && t.bufferSize.CompareAndSwap(cur, next) {
+		t.logger.Debug("Adaptive buffer resize",
+			applog.F("old_bytes", cur),
+			applog.F("new_bytes", next),
+			applog.F("throughput_mib_s", bps/1024/1024),
+		)
+	}
 }
 
 // buildPipeline wraps reader with checksum, throttle, progress, and optional compression layers.
@@ -419,10 +514,6 @@ func (t *TransferUseCase) buildPipeline(
 	} else if t.config.VerifyChecksum && resumeOffset == 0 {
 		csReader = newChecksumReader(reader)
 		streamReader = csReader
-	} else if t.config.VerifyChecksum && resumeOffset > 0 {
-		t.logger.Warn("Checksum verification skipped for resumed transfer",
-			applog.F("resume_offset", resumeOffset),
-		)
 	}
 
 	if t.config.BandwidthLimit > 0 {
@@ -437,7 +528,7 @@ func (t *TransferUseCase) buildPipeline(
 		progressChan:  progressChan,
 		fileName:      stat.Name,
 		startTime:     startTime,
-		bufferSize:    t.config.BufferSize,
+		bufferSize:    int(t.bufferSize.Load()),
 	}
 
 	writeReader = pr
