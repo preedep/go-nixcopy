@@ -113,4 +113,10 @@ Concurrency tuning:
   --buffer-size 67108864   64 MB buffer per worker (adjust with concurrency)
 
   Memory used ≈ buffer_size × concurrent_files
+
+Parallel directory listing (automatic):
+  Recursive patterns like "uploads/2024/**" traverse subdirectories using a
+  parallel worker pool (8 concurrent Storage.List calls by default). Deep
+  bucket hierarchies are scanned significantly faster than serial traversal
+  with no extra flags required.
 EOF

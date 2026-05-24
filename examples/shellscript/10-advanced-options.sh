@@ -38,13 +38,18 @@ NIXCOPY_VERIFY_CHECKSUM=true nixcopy transfer \
   --dest-type local   --dest   "$DST/file-1.bin"
 echo "Checksum passed — file arrived intact."
 
-# ── Example 2: Resume an interrupted transfer ─────────────────────────────────
+# ── Example 2: Resume an interrupted transfer with integrity check ────────────
 echo ""
-echo "=== 2. Resume a partial transfer ==="
+echo "=== 2. Resume a partial transfer with checksum-on-resume ==="
 # Simulate a partial file at the destination
 truncate -s 512K "$DST/file-2.bin"
 echo "Simulated partial file: $(du -sh "$DST/file-2.bin" | cut -f1) (full = 2 MB)"
 
+# When NIXCOPY_VERIFY_CHECKSUM=true is combined with --resume, nixcopy first
+# hashes the already-written bytes at the destination and compares them to the
+# same prefix in the source. If they match, it appends the remaining bytes.
+# If they differ (the partial file is corrupted), it aborts and restarts from
+# scratch — preventing silent data corruption.
 NIXCOPY_VERIFY_CHECKSUM=true nixcopy transfer \
   --source-type local --source "$SRC/file-2.bin" \
   --dest-type local   --dest   "$DST/file-2.bin" \
