@@ -105,18 +105,18 @@ nfpms:
       - src: ./LICENSE
         dst: /usr/share/doc/nixcopy/copyright
 
-# Fury.io — push .deb and .rpm to hosted APT/YUM repository.
-# Requires FURY_TOKEN and FURY_ACCOUNT secrets.
-# FURY_TOKEN  = push token from fury.io/dashboard → Account → Tokens
-# FURY_ACCOUNT = your fury.io account username (may differ from GitHub username)
-publishers:
-  - name: fury
-    ids: [nixcopy-pkg]
-    dir: "{{ dir .ArtifactPath }}"
-    cmd: >-
-      curl -f -w "\n→ HTTP %{http_code}\n"
-      -F package=@{{ .ArtifactName }}
-      https://{{ .Env.FURY_TOKEN }}@push.fury.io/{{ .Env.FURY_ACCOUNT }}/
+# Fury.io publisher — disabled until account is re-provisioned.
+# To re-enable: uncomment the block below and restore FURY_TOKEN + FURY_ACCOUNT
+# secrets in GitHub → Settings → Secrets, then add them back to release.yml env.
+#
+# publishers:
+#   - name: fury
+#     ids: [nixcopy-pkg]
+#     dir: "{{ dir .ArtifactPath }}"
+#     cmd: >-
+#       curl -f -w "\n→ HTTP %{http_code}\n"
+#       -F package=@{{ .ArtifactName }}
+#       https://{{ .Env.FURY_TOKEN }}@push.fury.io/{{ .Env.FURY_ACCOUNT }}/
 
 # Docker — multi-arch via buildx
 dockers:

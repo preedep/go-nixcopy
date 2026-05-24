@@ -746,3 +746,50 @@ func TestTransfer_Throttle_SFTPToS3(t *testing.T) {
 	}
 	_ = result
 }
+
+// --------------------------------------------------------------------------
+// #7 — Buffer pool under concurrency (local only, no credentials needed)
+// --------------------------------------------------------------------------
+
+// TestTransfer_HighConcurrency verifies that 8 concurrent local→local transfers of
+// 4 MB each complete without data corruption when the copyBufPool is under contention.
+// Uses only local storage so it runs in any integration environment without credentials.
+func TestTransfer_HighConcurrency(t *testing.T) {
+	const (
+		workers  = 8
+		fileSize = 4 * 1024 * 1024 // 4 MB
+	)
+
+	src := newLocalStore(t)
+	dst := newLocalStore(t)
+
+	// Write workers source files with distinct byte patterns.
+	fileContents := make([][]byte, workers)
+	srcPaths := make([]string, workers)
+	for i := 0; i < workers; i++ {
+		fileContents[i] = make([]byte, fileSize)
+		for j := range fileContents[i] {
+			fileContents[i][j] = byte((i*7 + j) % 251)
+		}
+		srcPaths[i] = fmt.Sprintf("hc-src-%d.bin", i)
+		putFile(t, src, srcPaths[i], fileContents[i])
+	}
+
+	cfg := baseTransferConfig()
+	cfg.BufferSize = 1 * 1024 * 1024
+	cfg.ConcurrentFiles = workers
+
+	results := doBatch(t, src, dst, srcPaths, ".", cfg)
+
+	if len(results) != workers {
+		t.Fatalf("got %d results, want %d", len(results), workers)
+	}
+	for i := 0; i < workers; i++ {
+		// TransferBatch preserves the source filename under destBase, so the
+		// destination path is srcPaths[i], not a renamed dstPaths[i].
+		got := getFile(t, dst, srcPaths[i])
+		if !bytes.Equal(got, fileContents[i]) {
+			t.Errorf("worker %d: content mismatch (len got=%d want=%d)", i, len(got), len(fileContents[i]))
+		}
+	}
+}

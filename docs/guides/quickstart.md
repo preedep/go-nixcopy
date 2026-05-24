@@ -195,8 +195,9 @@ transfer:
 ## Next Steps
 
 1. อ่าน [README.md](../../README.md) สำหรับข้อมูลเพิ่มเติม
-2. ดู [examples/](examples/) สำหรับ config ตัวอย่าง
-3. อ่าน [CONTRIBUTING.md](../development/contributing.md) ถ้าต้องการมีส่วนร่วม
+2. ดู [examples/](../../examples/) สำหรับ YAML config ตัวอย่าง
+3. ดู [examples/shellscript/](../../examples/shellscript/) สำหรับ shell script พร้อมรัน แยกตาม scenario
+4. อ่าน [CONTRIBUTING.md](../development/contributing.md) ถ้าต้องการมีส่วนร่วม
 
 ## Support
 

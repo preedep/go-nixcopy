@@ -102,6 +102,47 @@ func BenchmarkTransfer_WithChecksum(b *testing.B) {
 	}
 }
 
+// BenchmarkTransfer_BufferPool measures transfer throughput when the pooled-buffer path is
+// active (local→local uses getCopyBuf in Write). This validates that the pool does not
+// regress throughput compared to the baseline BenchmarkTransfer numbers.
+func BenchmarkTransfer_BufferPool(b *testing.B) {
+	for _, tc := range []struct {
+		name string
+		size int64
+	}{
+		{"1MB", 1 << 20},
+		{"16MB", 16 << 20},
+		{"64MB", 64 << 20},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			src := benchLocalStore(b, b.TempDir())
+			dst := benchLocalStore(b, b.TempDir())
+
+			data := make([]byte, tc.size)
+			ctx := context.Background()
+			if err := src.Write(ctx, "src.bin", bytes.NewReader(data), tc.size); err != nil {
+				b.Fatal(err)
+			}
+
+			cfg := &entity.TransferConfig{
+				BufferSize:      32 * 1024 * 1024,
+				ConcurrentFiles: 1,
+				RetryAttempts:   0,
+				RetryDelay:      time.Millisecond,
+			}
+			uc := NewTransferUseCase(src, dst, cfg, applog.NewNopLogger())
+
+			b.SetBytes(tc.size)
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if _, err := uc.Transfer(ctx, "src.bin", "dst.bin", nil); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
 // BenchmarkTransferBatch measures concurrent batch throughput at varying concurrency levels.
 // Each run transfers 8 × 1 MB files, so b.SetBytes reports total bytes per op.
 func BenchmarkTransferBatch(b *testing.B) {

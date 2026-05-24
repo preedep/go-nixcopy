@@ -92,6 +92,8 @@ type BlobConfig struct {
 	ClientSecret string `yaml:"client_secret,omitempty" json:"client_secret,omitempty"`
 
 	UseManagedIdentity bool `yaml:"use_managed_identity,omitempty" json:"use_managed_identity,omitempty"`
+
+	UploadConcurrency int `yaml:"upload_concurrency,omitempty" json:"upload_concurrency,omitempty"` // concurrent block uploads per blob; 0 = use default (5)
 }
 
 type S3AuthType string
@@ -122,6 +124,8 @@ type S3Config struct {
 	WebIdentityTokenFile string `yaml:"web_identity_token_file,omitempty" json:"web_identity_token_file,omitempty"`
 
 	Profile string `yaml:"profile,omitempty" json:"profile,omitempty"`
+
+	UploadConcurrency int `yaml:"upload_concurrency,omitempty" json:"upload_concurrency,omitempty"` // concurrent part uploads per object; 0 = use default (5)
 }
 
 type GCSAuthType string

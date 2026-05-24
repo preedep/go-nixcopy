@@ -241,8 +241,10 @@ func (l *LocalStorage) Write(ctx context.Context, path string, reader io.Reader,
 	}
 	defer file.Close()
 
-	// Copy data from reader to file
-	written, err := io.Copy(file, reader)
+	// Copy data from reader to file using a pooled buffer to reduce GC pressure.
+	buf := getCopyBuf()
+	defer putCopyBuf(buf)
+	written, err := io.CopyBuffer(file, reader, buf)
 	if err != nil {
 		return fmt.Errorf("failed to write file: %w", err)
 	}
@@ -387,7 +389,9 @@ func (l *LocalStorage) AppendWrite(ctx context.Context, path string, reader io.R
 		return fmt.Errorf("failed to seek to offset %d: %w", offset, err)
 	}
 
-	if _, err := io.Copy(file, reader); err != nil {
+	buf := getCopyBuf()
+	defer putCopyBuf(buf)
+	if _, err := io.CopyBuffer(file, reader, buf); err != nil {
 		return fmt.Errorf("failed to write resumed content: %w", err)
 	}
 
