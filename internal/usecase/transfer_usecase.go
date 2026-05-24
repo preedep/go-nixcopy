@@ -336,9 +336,11 @@ func (t *TransferUseCase) attemptTransfer(
 	}
 
 	// Verify existing dest bytes match source before appending to avoid silent corruption.
+	// On mismatch, delete the corrupted partial file so the next retry starts from offset 0.
 	if resumeOffset > 0 && t.config.VerifyChecksum && t.config.Compression == "" {
 		if verifyErr := t.verifyResumeIntegrity(ctx, sourcePath, destPath, resumeOffset); verifyErr != nil {
-			return "", resumeOffset, 0, verifyErr
+			_ = t.dest.Delete(ctx, destPath)
+			return "", 0, 0, verifyErr
 		}
 	}
 
