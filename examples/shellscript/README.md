@@ -22,8 +22,9 @@ make install   # or: go install ./cmd/nixcopy
 | [06-local-to-azure-blob.sh](06-local-to-azure-blob.sh) | Upload to Azure Blob — connection_string, shared_key, Managed Identity |
 | [07-local-to-gcs.sh](07-local-to-gcs.sh) | Upload to GCS — Application Default, service account key, Workload Identity |
 | [08-sftp-to-s3.sh](08-sftp-to-s3.sh) | Direct SFTP → S3 (no local disk); includes nightly backup pattern |
-| [09-batch-transfer.sh](09-batch-transfer.sh) | Many files in parallel — glob, `--sources`, skip-existing, concurrency tuning |
-| [10-advanced-options.sh](10-advanced-options.sh) | Checksum, resume, bandwidth limit, retry, verbose — local only, no credentials needed |
+| [09-batch-transfer.sh](09-batch-transfer.sh) | Many files in parallel — glob, `--sources`, skip-existing, concurrency tuning; parallel directory listing for `**` patterns |
+| [10-advanced-options.sh](10-advanced-options.sh) | Checksum, resume with integrity check, bandwidth limit, retry, verbose — local only, no credentials needed |
+| [12-performance-tuning.sh](12-performance-tuning.sh) | Buffer size, concurrency, upload-concurrency, incremental sync, adaptive buffer auto-tuning |
 | [11-s3-to-blob.sh](11-s3-to-blob.sh) | S3 ↔ Azure Blob — single file, batch migration, incremental sync, dual-cloud backup |
 
 ## Quick start (no credentials)

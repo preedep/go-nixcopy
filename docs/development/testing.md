@@ -139,8 +139,19 @@ internal/
 │                                      Note: Blob account name is NOT required when auth_type == connection_string
 └── usecase/
     ├── compress_test.go             — gzip/zstd round-trips, passthrough, ratio, invalid algo (6 tests)
-    ├── pattern_matcher_test.go      — glob expansion, recursive **, no-match behaviour
-    ├── throttle_test.go             — ParseBandwidth formats, passthrough, data integrity, context cancel (4 tests)
+    ├── pattern_matcher_test.go      — glob expansion, recursive **, no-match behaviour; matchesPattern edge cases:
+    │                                  recursive prefix mismatch, suffix no-match, full-path wildcard mismatch,
+    │                                  invalid glob suffix (filepath.Match error → false)
+    ├── throttle_test.go             — ParseBandwidth formats, passthrough, data integrity, epoch rollover,
+    │                                  context cancel (5 tests)
+    ├── transfer_usecase_improvements_test.go — verifyResumeIntegrity (match, mismatch, source read error,
+    │                                  dest read error, source too short, dest too short); resume+checksum end-to-end;
+    │                                  integrity-mismatch fallback to full transfer; adaptBufferSize (slow/fast/mid,
+    │                                  floor/ceiling clamp, zero bps no-op); allRetriesFailed with progressChan;
+    │                                  checksum dest read error; checksum dest hash error
+    ├── pattern_matcher_parallel_test.go — parallel recursive listing (3-level tree), concurrency bound (≤ listParallel),
+    │                                  subdirectory list error skipped (partial results), result completeness
+    │                                  (20 files across 4 dirs, sorted comparison)
     ├── transfer_usecase_branches_test.go — progressReader.Close (Closer/non-Closer), resume+compression warning,
     │                                  checksum skipped when resumed, checksum skipped when compressed,
     │                                  ReadFrom error exhausting retries
@@ -242,6 +253,43 @@ cancel()
 _, err = io.ReadAll(r) // returns context error quickly
 ```
 
+### Resume integrity tests
+
+```go
+// Matching prefix — no error
+if err := uc.verifyResumeIntegrity(ctx, "/src/f", "/dst/f", 10); err != nil { ... }
+
+// Corrupted dest prefix — returns error
+dest content differs → fmt.Errorf("resume integrity mismatch at offset %d: ...", offset, ...)
+```
+
+### Adaptive buffer tests
+
+```go
+uc := &TransferUseCase{...}
+uc.bufferSize.Store(32 * 1024 * 1024)
+
+uc.adaptBufferSize(32 * 1024 * 1024)  // < 64 MiB/s → halved to 16 MiB
+uc.adaptBufferSize(600 * 1024 * 1024) // > 512 MiB/s → doubled to 64 MiB
+uc.adaptBufferSize(200 * 1024 * 1024) // within range → unchanged
+uc.adaptBufferSize(0)                 // no measurement → unchanged
+```
+
+### Parallel listing tests
+
+```go
+// Inject a custom ListFunc to control the directory tree shape
+storage.ListFunc = func(ctx context.Context, path string) ([]entity.FileInfo, error) {
+    switch path {
+    case "/root": return []entity.FileInfo{{Path: "/root/a", IsDirectory: true}, ...}, nil
+    // ...
+    }
+    return nil, nil
+}
+matcher := &PatternMatcher{storage: storage, logger: logger, listParallel: 4}
+files, err := matcher.MatchFiles(ctx, "/root/**/*.log")
+```
+
 ### Compression tests
 
 ```go
@@ -321,7 +369,7 @@ LoadFromEnv(cfg)
 |---|---|---|
 | `internal/domain/entity` | **100%** | All pattern matching branches including error paths |
 | `internal/infrastructure/config` | ~98% | YAML file loading, env var loading, all storage types and auth subtypes |
-| `internal/usecase` | ~92% | Core transfer logic, all feature paths including progressReader.Close and warning branches |
+| `internal/usecase` | **~99%** | All reachable paths covered; two structurally unreachable branches remain: `zstd.NewWriter` error (never errors with default options) and `len(patternParts) != 2` after splitting on `**` (not a valid nixcopy pattern) |
 | `internal/infrastructure/logger` | ~85% | All log methods, field helpers, child loggers, level filtering; `logger.go` Zap stub excluded (dead code) |
 | `internal/interfaces/cli` | ~60% | Flag wiring, validateConfig (100%), TLS mode; `runTransfer`/`runList` require real storage |
 | `internal/infrastructure/storage` | ~53% | Local Connect/Write/CreateDirectory at 100%; FTPS/Blob/S3/SFTP nil-client guards + auth paths; happy paths need integration tag |

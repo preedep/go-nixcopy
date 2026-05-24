@@ -107,8 +107,8 @@ cmd/nixcopy/main.go
 - **service/** — `TransferService` interface
 
 ### Use Case (`internal/usecase/`)
-- `transfer_usecase.go` — single-file and batch transfer; decomposed into `Transfer` (orchestrator), `runWithRetry` (retry loop), `attemptTransfer` (single attempt), `buildPipeline` (I/O wiring); semaphore-based concurrency; SHA-256 checksum verification; resume from partial destination files; `transferBufPool` (256 KiB `sync.Pool`) used in the compression pipeline goroutine
-- `pattern_matcher.go` — expands glob patterns (`*.pdf`, `**/*.log`) by calling `Storage.List` recursively
+- `transfer_usecase.go` — single-file and batch transfer; decomposed into `Transfer` (orchestrator), `runWithRetry` (retry loop), `attemptTransfer` (single attempt), `buildPipeline` (I/O wiring); semaphore-based concurrency; SHA-256 checksum verification; resume from partial destination files; `transferBufPool` (256 KiB `sync.Pool`) used in the compression pipeline goroutine; adaptive buffer sizing (`atomic.Int64 bufferSize`, halved/doubled per observed throughput, clamped to [512 KiB, 128 MiB]); `verifyResumeIntegrity` hashes the already-written dest bytes before appending to detect silent corruption
+- `pattern_matcher.go` — expands glob patterns (`*.pdf`, `**/*.log`) via a parallel worker pool (`listFilesParallel`, bounded by `listParallel` workers, default 8); a coordinator goroutine owns the work queue to prevent semaphore deadlock
 - `mocks/storage_mock.go` — `MockStorage` satisfies the `Storage` and `Resumer` interfaces; used in all unit tests
 
 ### Infrastructure (`internal/infrastructure/`)
@@ -224,7 +224,7 @@ Memory is bounded by `bufferSize × concurrentFiles`. Tune all three levers toge
 - On an unstable network, increase `--retry-attempts` before increasing concurrency.
 - `--retry-delay` is config-file / `NIXCOPY_RETRY_DELAY` env var only — no CLI flag.
 
-**Implementation note:** local and SFTP backends use a shared `sync.Pool` of 256 KiB buffers (`storage/pool.go`) via `io.CopyBuffer`, eliminating per-transfer heap allocations. The compression pipeline goroutine uses a separate pool (`transferBufPool` in `transfer_usecase.go`).
+**Implementation note:** local and SFTP backends use a shared `sync.Pool` of 256 KiB buffers (`storage/pool.go`) via `io.CopyBuffer`, eliminating per-transfer heap allocations. The compression pipeline goroutine uses a separate pool (`transferBufPool` in `transfer_usecase.go`). `TransferUseCase` additionally self-tunes its copy-buffer size after each transfer: throughput below 64 MiB/s halves the buffer; above 512 MiB/s doubles it; clamped to [512 KiB, 128 MiB]. The tuned value is stored in an `atomic.Int64` so concurrent batch transfers converge safely.
 
 See `examples/shellscript/12-performance-tuning.sh` for ready-to-run tuning examples.
 
@@ -247,6 +247,8 @@ Use `nixcopy list` to validate a pattern before a real transfer:
 nixcopy list -c config.yaml -p "reports/*.pdf" --source
 ```
 
+Recursive patterns (`**`) traverse subdirectories using a parallel worker pool (8 concurrent `Storage.List` calls by default). This makes deep trees significantly faster than serial traversal at no user-facing configuration cost.
+
 See [PARALLEL_TRANSFER.md](docs/guides/parallel-transfer.md) for batch, multi-pattern, and scripting examples.
 
 ---
@@ -259,6 +261,9 @@ CLI flag tests (`internal/interfaces/cli/flags_test.go`) operate on package-leve
 
 ```bash
 go test ./internal/usecase/... -run TestPatternMatcher   # specific test
+go test ./internal/usecase/... -run TestAdaptBuffer      # adaptive buffer tests
+go test ./internal/usecase/... -run TestVerifyResume     # checksum-on-resume tests
+go test ./internal/usecase/... -run TestPatternMatcher_Parallel  # parallel listing tests
 go test -race ./...                                       # race detector
 go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out
 ```

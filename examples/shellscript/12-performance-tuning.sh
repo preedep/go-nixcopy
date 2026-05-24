@@ -90,6 +90,21 @@ nixcopy transfer \
   --skip-existing
 echo "Second pass done — only small-new.bin was transferred."
 
+# ── Adaptive buffer sizing ────────────────────────────────────────────────────
+echo ""
+echo "=== Adaptive buffer sizing (automatic, no flags needed) ==="
+# nixcopy measures throughput after each file transfer and automatically
+# adjusts its internal copy buffer:
+#   - Below 64 MiB/s  → buffer is halved  (reduces memory pressure on slow links)
+#   - Above 512 MiB/s → buffer is doubled (maximises throughput on fast links)
+#   - Always clamped to [512 KiB, 128 MiB]
+#
+# --buffer-size sets the STARTING value; nixcopy tunes from there.
+# In a batch transfer each concurrent worker converges independently via an
+# atomic compare-and-swap, so all workers benefit from observed throughput.
+echo "Buffer auto-tuning is always active — no flag required."
+echo "(Set --buffer-size to override the initial value if needed.)"
+
 # ── Notes for cloud backends ───────────────────────────────────────────────────
 echo ""
 echo "For S3 / Azure Blob, replace local flags with cloud-specific ones, e.g.:"
